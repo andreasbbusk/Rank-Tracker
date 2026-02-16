@@ -83,6 +83,9 @@ export type MockGSCRecord = {
 
 export type SeedMeta = {
   seed_version: number;
+  deletedDomainIds?: string[];
+  deletedKeywordIds?: number[];
+  deletedTagIds?: number[];
   nextDomainId: number;
   nextKeywordId: number;
   nextTagId: number;

@@ -3,6 +3,7 @@ import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { RankTrackerTagModel } from "../models/tag.model";
 import { getCurrentTenantId } from "../core/tenant";
 import { getNonSeededPruneAfterDate } from "../core/retention";
+import { SHARED_SEED_TENANT_ID } from "../core/database";
 import { MockDomain, MockKeyword, MockLocation, MockTag } from "../types";
 import { buildRange } from "../utils/analytics";
 import {
@@ -12,6 +13,10 @@ import {
   slugify,
 } from "../utils/normalizers";
 import { reserveCounterRange } from "../core/database";
+import {
+  getTenantOverlayState,
+  mergeTenantAndSeedDocuments,
+} from "./overlay-utils.service";
 
 export async function getTagsByIds(
   tagIds: number[],
@@ -22,14 +27,45 @@ export async function getTagsByIds(
   }
 
   const activeTenantId = tenantId || (await getCurrentTenantId());
-  const tags = (await RankTrackerTagModel.find({
-    tenantId: activeTenantId,
-    id: { $in: tagIds },
-  })
-    .select({ _id: 0, id: 1, domainId: 1, name: 1, name_lower: 1, created_at: 1 })
-    .lean()) as unknown as MockTag[];
+  const [overlayState, tags] = await Promise.all([
+    getTenantOverlayState(activeTenantId),
+    RankTrackerTagModel.find({
+      tenantId: { $in: [activeTenantId, SHARED_SEED_TENANT_ID] },
+      id: { $in: tagIds },
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        domainId: 1,
+        name: 1,
+        name_lower: 1,
+        created_at: 1,
+      })
+      .lean(),
+  ]);
 
-  const byId = new Map(tags.map((tag) => [tag.id, tag]));
+  const merged = mergeTenantAndSeedDocuments(
+    activeTenantId,
+    tags as Array<MockTag & { tenantId: string }>,
+    (tag) => String(tag.id),
+    (tag, id) =>
+      overlayState.deletedTagIds.has(Number(id)) ||
+      overlayState.deletedDomainIds.has(tag.domainId),
+  );
+
+  const byId = new Map(
+    merged.map((tag) => [
+      tag.id,
+      {
+        id: tag.id,
+        domainId: tag.domainId,
+        name: tag.name,
+        created_at: tag.created_at,
+        name_lower: tag.name_lower,
+      } as MockTag,
+    ]),
+  );
   return tagIds
     .map((id) => byId.get(id))
     .filter((tag): tag is MockTag => Boolean(tag));
@@ -59,14 +95,35 @@ export async function ensureDomainTagsInMongo(
   }
 
   const lowered = cleaned.map((name) => name.toLowerCase());
-  const existing = (await RankTrackerTagModel.find({
-    tenantId: activeTenantId,
-    domainId,
-    name_lower: { $in: lowered },
-  }).lean()) as unknown as MockTag[];
+  const [overlayState, existing] = await Promise.all([
+    getTenantOverlayState(activeTenantId),
+    RankTrackerTagModel.find({
+      tenantId: { $in: [activeTenantId, SHARED_SEED_TENANT_ID] },
+      domainId,
+      name_lower: { $in: lowered },
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        domainId: 1,
+        name: 1,
+        name_lower: 1,
+        created_at: 1,
+      })
+      .lean(),
+  ]);
 
+  const mergedExisting = mergeTenantAndSeedDocuments(
+    activeTenantId,
+    existing as Array<MockTag & { tenantId: string }>,
+    (tag) => tag.name_lower || tag.name.toLowerCase(),
+    (tag) =>
+      overlayState.deletedTagIds.has(tag.id) ||
+      overlayState.deletedDomainIds.has(tag.domainId),
+  );
   const existingMap = new Map(
-    existing.map((tag) => [tag.name.toLowerCase(), tag]),
+    mergedExisting.map((tag) => [tag.name.toLowerCase(), tag as MockTag]),
   );
   const ids: number[] = [];
   const missing = cleaned.filter((name) => !existingMap.has(name.toLowerCase()));
@@ -107,7 +164,7 @@ export async function ensureDomainTagsInMongo(
           created_at: new Date().toISOString(),
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     )
       .lean() as unknown as MockTag | null;
 
@@ -127,12 +184,22 @@ export async function getDomainSiteUrl(
   tenantId?: string,
 ): Promise<string | null> {
   const activeTenantId = tenantId || (await getCurrentTenantId());
-  const domain = (await RankTrackerDomainModel.findOne({
-    tenantId: activeTenantId,
-    id: domainId,
-  })
-    .select({ _id: 0, url: 1 })
-    .lean()) as unknown as MockDomain | null;
+  const [overlayState, domains] = await Promise.all([
+    getTenantOverlayState(activeTenantId),
+    RankTrackerDomainModel.find({
+      tenantId: { $in: [activeTenantId, SHARED_SEED_TENANT_ID] },
+      id: domainId,
+    })
+      .select({ _id: 0, tenantId: 1, id: 1, url: 1 })
+      .lean(),
+  ]);
+
+  const [domain] = mergeTenantAndSeedDocuments(
+    activeTenantId,
+    domains as Array<MockDomain & { tenantId: string }>,
+    (item) => item.id,
+    (_, id) => overlayState.deletedDomainIds.has(id),
+  );
 
   if (!domain) {
     return null;
@@ -211,8 +278,62 @@ export function buildNewKeywordRecord({
 
 export async function getKeywordsForDomain(domainId: string) {
   const tenantId = await getCurrentTenantId();
-  return (await RankTrackerKeywordModel.find({
+  const [overlayState, keywords] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerKeywordModel.find({
+      tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+      domainId: String(domainId),
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        domainId: 1,
+        title: 1,
+        title_lower: 1,
+        star_keyword: 1,
+        location: 1,
+        tagIds: 1,
+        notes: 1,
+        latest_fetch: 1,
+        created_at: 1,
+        updated_at: 1,
+        preferred_url: 1,
+        search_volume: 1,
+        current: 1,
+        previous: 1,
+        status: 1,
+        statusChecksRemaining: 1,
+      })
+      .lean(),
+  ]);
+
+  const merged = mergeTenantAndSeedDocuments(
     tenantId,
-    domainId: String(domainId),
-  }).lean()) as unknown as MockKeyword[];
+    keywords as Array<MockKeyword & { tenantId: string }>,
+    (keyword) => String(keyword.id),
+    (keyword, id) =>
+      overlayState.deletedDomainIds.has(keyword.domainId) ||
+      overlayState.deletedKeywordIds.has(Number(id)),
+  );
+
+  return merged.map((keyword) => ({
+    id: keyword.id,
+    domainId: keyword.domainId,
+    title: keyword.title,
+    title_lower: keyword.title_lower,
+    star_keyword: keyword.star_keyword,
+    location: keyword.location,
+    tagIds: keyword.tagIds,
+    notes: keyword.notes,
+    latest_fetch: keyword.latest_fetch,
+    created_at: keyword.created_at,
+    updated_at: keyword.updated_at,
+    preferred_url: keyword.preferred_url,
+    search_volume: keyword.search_volume,
+    current: keyword.current,
+    previous: keyword.previous,
+    status: keyword.status,
+    statusChecksRemaining: keyword.statusChecksRemaining,
+  }));
 }

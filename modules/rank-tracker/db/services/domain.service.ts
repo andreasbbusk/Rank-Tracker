@@ -1,4 +1,8 @@
-import { ensureDatabase, getNextCounter } from "../core/database";
+import {
+  ensureDatabase,
+  getNextCounter,
+  SHARED_SEED_TENANT_ID,
+} from "../core/database";
 import { getCurrentTenantId } from "../core/tenant";
 import { getNonSeededPruneAfterDate } from "../core/retention";
 import { RankTrackerDomainModel } from "../models/domain.model";
@@ -7,62 +11,18 @@ import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { RankTrackerTagModel } from "../models/tag.model";
 import { MockDomain } from "../types";
 import { normalizeDomain, normalizeSiteUrl } from "../utils/normalizers";
+import {
+  getTenantOverlayState,
+  markDeletedSeedDomain,
+  mergeTenantAndSeedDocuments,
+} from "./overlay-utils.service";
 
-export async function listDomains() {
-  const tenantId = await getCurrentTenantId();
-  await ensureDatabase(tenantId);
+type DomainDoc = MockDomain & {
+  tenantId: string;
+  display_name_lower?: string;
+};
 
-  const domains = (await RankTrackerDomainModel.find({ tenantId })
-    .sort({ created_at: -1, id: 1 })
-    .select({
-      _id: 0,
-      id: 1,
-      team: 1,
-      url: 1,
-      display_name: 1,
-      created_at: 1,
-      updated_at: 1,
-    })
-    .lean()) as unknown as MockDomain[];
-
-  return domains.map((domain) => ({
-    id: domain.id,
-    team: domain.team,
-    url: domain.url,
-    display_name: domain.display_name,
-    created_at: domain.created_at,
-    updated_at: domain.updated_at,
-  }));
-}
-
-export async function countDomains() {
-  const tenantId = await getCurrentTenantId();
-  await ensureDatabase(tenantId);
-  return RankTrackerDomainModel.countDocuments({ tenantId });
-}
-
-export async function getDomainById(id: string) {
-  const tenantId = await getCurrentTenantId();
-  await ensureDatabase(tenantId);
-  const domain = (await RankTrackerDomainModel.findOne({
-    tenantId,
-    id: String(id),
-  })
-    .select({
-      _id: 0,
-      id: 1,
-      team: 1,
-      url: 1,
-      display_name: 1,
-      created_at: 1,
-      updated_at: 1,
-    })
-    .lean()) as unknown as MockDomain | null;
-
-  if (!domain) {
-    return null;
-  }
-
+function toDomain(domain: DomainDoc): MockDomain {
   return {
     id: domain.id,
     team: domain.team,
@@ -71,6 +31,94 @@ export async function getDomainById(id: string) {
     created_at: domain.created_at,
     updated_at: domain.updated_at,
   };
+}
+
+async function getMergedDomainsInternal(tenantId: string): Promise<MockDomain[]> {
+  const [overlayState, domains] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerDomainModel.find({
+      tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        team: 1,
+        url: 1,
+        display_name: 1,
+        created_at: 1,
+        updated_at: 1,
+        display_name_lower: 1,
+      })
+      .lean(),
+  ]);
+
+  const merged = mergeTenantAndSeedDocuments(
+    tenantId,
+    domains as DomainDoc[],
+    (domain) => domain.id,
+    (_, id) => overlayState.deletedDomainIds.has(id),
+  );
+
+  return merged
+    .map(toDomain)
+    .sort((left, right) => {
+      if (left.created_at === right.created_at) {
+        return left.id.localeCompare(right.id);
+      }
+      return left.created_at > right.created_at ? -1 : 1;
+    });
+}
+
+export async function listDomains() {
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
+  return getMergedDomainsInternal(tenantId);
+}
+
+export async function countDomains() {
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
+  const domains = await getMergedDomainsInternal(tenantId);
+  return domains.length;
+}
+
+export async function getDomainById(id: string) {
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
+
+  const domainId = String(id);
+  const [overlayState, domains] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerDomainModel.find({
+      tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+      id: domainId,
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        team: 1,
+        url: 1,
+        display_name: 1,
+        created_at: 1,
+        updated_at: 1,
+      })
+      .lean(),
+  ]);
+
+  if (overlayState.deletedDomainIds.has(domainId)) {
+    return null;
+  }
+
+  const [domain] = mergeTenantAndSeedDocuments(
+    tenantId,
+    domains as DomainDoc[],
+    (item) => item.id,
+    () => false,
+  );
+
+  return domain ? toDomain(domain) : null;
 }
 
 export async function createDomain({
@@ -86,12 +134,26 @@ export async function createDomain({
   const normalizedUrl = normalizeDomain(url);
   const normalizedDisplayName = display_name.trim().toLowerCase();
 
-  const duplicateDisplayName = await RankTrackerDomainModel.exists({
-    tenantId,
-    display_name_lower: normalizedDisplayName,
-  });
+  const [overlayState, duplicateCandidates] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerDomainModel.find({
+      tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+      display_name_lower: normalizedDisplayName,
+    })
+      .select({ _id: 0, tenantId: 1, id: 1, display_name: 1 })
+      .lean(),
+  ]);
 
-  if (duplicateDisplayName) {
+  const duplicates = mergeTenantAndSeedDocuments(
+    tenantId,
+    duplicateCandidates as Array<
+      Pick<DomainDoc, "tenantId" | "id" | "display_name">
+    >,
+    (domain) => domain.id,
+    (_, domainId) => overlayState.deletedDomainIds.has(domainId),
+  );
+
+  if (duplicates.length > 0) {
     return {
       error: true,
       message: "Visningsnavnet findes allerede",
@@ -171,46 +233,105 @@ export async function updateDomain({
   const tenantId = await getCurrentTenantId();
   await ensureDatabase(tenantId);
 
-  const domain = (await RankTrackerDomainModel.findOne({
-    tenantId,
-    id: String(id),
-  })
-    .select({
-      _id: 0,
-      id: 1,
-      team: 1,
-      url: 1,
-      display_name: 1,
-      created_at: 1,
-      updated_at: 1,
-    })
-    .lean()) as unknown as MockDomain | null;
+  const domainId = String(id);
 
-  if (!domain) {
+  const [overlayState, tenantDomain, seedDomain] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerDomainModel.findOne({
+      tenantId,
+      id: domainId,
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        team: 1,
+        url: 1,
+        display_name: 1,
+        display_name_lower: 1,
+        created_at: 1,
+        updated_at: 1,
+      })
+      .lean(),
+    RankTrackerDomainModel.findOne({
+      tenantId: SHARED_SEED_TENANT_ID,
+      id: domainId,
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        team: 1,
+        url: 1,
+        display_name: 1,
+        display_name_lower: 1,
+        created_at: 1,
+        updated_at: 1,
+      })
+      .lean(),
+  ]);
+
+  const sourceDomain =
+    tenantDomain || (overlayState.deletedDomainIds.has(domainId) ? null : seedDomain);
+
+  if (!sourceDomain) {
     return { error: true, message: "Domæne ikke fundet" };
   }
 
   const normalizedDisplayName = display_name.trim().toLowerCase();
-  const duplicateDisplayName = await RankTrackerDomainModel.exists({
-    tenantId,
-    id: { $ne: String(id) },
+  const duplicateCandidates = await RankTrackerDomainModel.find({
+    tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+    id: { $ne: domainId },
     display_name_lower: normalizedDisplayName,
-  });
+  })
+    .select({ _id: 0, tenantId: 1, id: 1 })
+    .lean();
 
-  if (duplicateDisplayName) {
+  const duplicates = mergeTenantAndSeedDocuments(
+    tenantId,
+    duplicateCandidates as Array<{ tenantId: string; id: string }>,
+    (domain) => domain.id,
+    (_, candidateId) => overlayState.deletedDomainIds.has(candidateId),
+  );
+
+  if (duplicates.length > 0) {
     return { error: true, message: "Visningsnavnet findes allerede" };
   }
 
   const updated_at = new Date().toISOString();
-  const nextDomain = {
-    ...domain,
+  const nextDomain: MockDomain = {
+    id: sourceDomain.id,
+    team: sourceDomain.team,
     url: normalizeDomain(url),
     display_name: display_name.trim(),
+    created_at: sourceDomain.created_at,
     updated_at,
   };
 
+  if (!tenantDomain) {
+    const pruneAfter = getNonSeededPruneAfterDate();
+    await RankTrackerDomainModel.updateOne(
+      { tenantId, id: domainId },
+      {
+        $setOnInsert: {
+          tenantId,
+          isSeeded: false,
+          pruneAfter,
+          id: sourceDomain.id,
+          team: sourceDomain.team,
+          url: sourceDomain.url,
+          display_name: sourceDomain.display_name,
+          display_name_lower: sourceDomain.display_name.toLowerCase(),
+          created_at: sourceDomain.created_at,
+          updated_at: sourceDomain.updated_at,
+        },
+      },
+      { upsert: true },
+    );
+  }
+
   await RankTrackerDomainModel.updateOne(
-    { tenantId, id: String(id) },
+    { tenantId, id: domainId },
     {
       $set: {
         url: nextDomain.url,
@@ -228,37 +349,57 @@ export async function deleteDomain(id: string) {
   const tenantId = await getCurrentTenantId();
   await ensureDatabase(tenantId);
 
-  const domain = (await RankTrackerDomainModel.findOne({
-    tenantId,
-    id: String(id),
-  })
-    .select({
-      _id: 0,
-      id: 1,
-      url: 1,
+  const domainId = String(id);
+  const [overlayState, tenantDomain, seedDomain] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerDomainModel.findOne({ tenantId, id: domainId })
+      .select({ _id: 0, id: 1, url: 1 })
+      .lean(),
+    RankTrackerDomainModel.findOne({
+      tenantId: SHARED_SEED_TENANT_ID,
+      id: domainId,
     })
-    .lean()) as unknown as Pick<MockDomain, "id" | "url"> | null;
+      .select({ _id: 0, id: 1, url: 1 })
+      .lean(),
+  ]);
 
-  if (!domain) {
+  const isSeedDeleted = overlayState.deletedDomainIds.has(domainId);
+  const visibleDomain = tenantDomain || (!isSeedDeleted ? seedDomain : null);
+
+  if (!visibleDomain) {
     return false;
   }
 
+  const deletingSeedBackedDomain = Boolean(seedDomain);
+
   await Promise.all([
-    RankTrackerDomainModel.deleteOne({ tenantId, id: String(id) }),
-    RankTrackerKeywordModel.deleteMany({ tenantId, domainId: String(id) }),
-    RankTrackerTagModel.deleteMany({ tenantId, domainId: String(id) }),
+    RankTrackerDomainModel.deleteOne({ tenantId, id: domainId }),
+    RankTrackerKeywordModel.deleteMany({ tenantId, domainId }),
+    RankTrackerTagModel.deleteMany({ tenantId, domainId }),
+    deletingSeedBackedDomain
+      ? markDeletedSeedDomain(tenantId, domainId)
+      : Promise.resolve(),
   ]);
 
-  const hasSiblingWithSameUrl = await RankTrackerDomainModel.exists({
-    tenantId,
-    id: { $ne: String(id) },
-    url: normalizeDomain(domain.url),
-  });
+  const siblingCandidates = await RankTrackerDomainModel.find({
+    tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+    id: { $ne: domainId },
+    url: normalizeDomain(visibleDomain.url),
+  })
+    .select({ _id: 0, tenantId: 1, id: 1 })
+    .lean();
 
-  if (!hasSiblingWithSameUrl) {
+  const siblings = mergeTenantAndSeedDocuments(
+    tenantId,
+    siblingCandidates as Array<{ tenantId: string; id: string }>,
+    (domain) => domain.id,
+    (_, candidateId) => overlayState.deletedDomainIds.has(candidateId),
+  );
+
+  if (!siblings.length) {
     await RankTrackerGSCSiteModel.deleteOne({
       tenantId,
-      siteUrl: normalizeSiteUrl(domain.url),
+      siteUrl: normalizeSiteUrl(visibleDomain.url),
     });
   }
 

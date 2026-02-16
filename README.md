@@ -37,20 +37,13 @@ The data layer uses MongoDB + Mongoose with deterministic seeded data, so core p
 ## Sandbox Isolation
 
 Each visitor gets an isolated Mongo-backed sandbox keyed by a session cookie (`rt_demo_session`).
-Seeded data is created per session and CRUD changes persist inside that session only.
-Entire stale tenants (including seeded + user-created data) are pruned automatically after a retention window.
+Seeded data is stored once in a shared immutable tenant and each sandbox tenant uses an overlay model:
+- Reads merge shared seed docs with tenant-local docs.
+- Tenant-local docs override shared docs (copy-on-write).
+- Deleting shared seeded docs creates tenant tombstones so removals stay isolated.
+CRUD changes persist inside each session-only overlay without duplicating the full seed dataset per tenant.
+All non-seed tenant overlays are pruned automatically by cron, while the shared seed tenant remains intact.
 Security headers are enabled globally in `next.config.mjs` (CSP, frame denial, referrer policy, etc.).
-
-### Prune Job (Vercel Cron)
-
-- `vercel.json` is configured to run `/api/cron/prune` every hour.
-- Set env vars in Vercel:
-  - `TENANT_RETENTION_HOURS` (default `24`)
-  - `CRON_SECRET`
-- Vercel sends `Authorization: Bearer <CRON_SECRET>` automatically to cron endpoints when `CRON_SECRET` is set.
-- You can also trigger manually:
-  - `GET /api/cron/prune?secret=YOUR_SECRET`
-  - or `POST /api/cron/prune` with `Authorization: Bearer YOUR_SECRET`
 
 ## Background
 

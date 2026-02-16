@@ -26,7 +26,7 @@ async function handlePrune(request: NextRequest) {
     const summary = await pruneStaleTenants();
     return NextResponse.json({ success: true, summary });
   } catch (error) {
-    console.error("Failed to prune stale sandbox tenants", error);
+    console.error("Failed to prune sandbox tenants", error);
     return NextResponse.json(
       { success: false, error: "Prune job failed" },
       { status: 500 },

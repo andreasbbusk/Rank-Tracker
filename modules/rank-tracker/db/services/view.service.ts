@@ -1,33 +1,33 @@
-import { ensureDatabase } from "../core/database";
+import {
+  ensureDatabase,
+  SHARED_SEED_TENANT_ID,
+} from "../core/database";
 import { getCurrentTenantId } from "../core/tenant";
-import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
-import { DateRange, MockDomain, MockKeyword, MockTag } from "../types";
+import { DateRange, MockKeyword, MockTag } from "../types";
 import {
   aggregateDomainGraph,
   aggregateDomainRange,
   keywordToViewRecord,
 } from "../utils/analytics";
-import { getTagsByIds } from "./common.service";
+import { getTagsByIds, getKeywordsForDomain } from "./common.service";
+import { listDomains } from "./domain.service";
+import {
+  getTenantOverlayState,
+  mergeTenantAndSeedDocuments,
+} from "./overlay-utils.service";
 
-type DomainAggregationRow = {
-  _id: string;
-  total_keywords: number;
-  clicks0: number;
-  impressions0: number;
-  position0: number;
-  range0_0_3: number;
-  range0_3_10: number;
-  range0_10_20: number;
-  range0_20_plus: number;
-  clicks1: number;
-  impressions1: number;
-  position1: number;
-  range1_0_3: number;
-  range1_3_10: number;
-  range1_10_20: number;
-  range1_20_plus: number;
+type KeywordDoc = MockKeyword & {
+  tenantId: string;
+  title_lower?: string;
 };
+
+function sortKeywordsForTable(left: MockKeyword, right: MockKeyword): number {
+  if (left.created_at === right.created_at) {
+    return left.id - right.id;
+  }
+  return left.created_at > right.created_at ? -1 : 1;
+}
 
 function buildRangeStats(
   stats:
@@ -47,126 +47,93 @@ function buildRangeStats(
   ];
 }
 
+async function getMergedKeywordById(
+  tenantId: string,
+  keywordId: number,
+): Promise<MockKeyword | null> {
+  const [overlayState, keywordCandidates] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerKeywordModel.find({
+      tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+      id: keywordId,
+    })
+      .select({
+        _id: 0,
+        tenantId: 1,
+        id: 1,
+        domainId: 1,
+        title: 1,
+        title_lower: 1,
+        star_keyword: 1,
+        location: 1,
+        tagIds: 1,
+        notes: 1,
+        latest_fetch: 1,
+        created_at: 1,
+        updated_at: 1,
+        preferred_url: 1,
+        search_volume: 1,
+        current: 1,
+        previous: 1,
+        status: 1,
+        statusChecksRemaining: 1,
+      })
+      .lean(),
+  ]);
+
+  const [keyword] = mergeTenantAndSeedDocuments(
+    tenantId,
+    keywordCandidates as KeywordDoc[],
+    (item) => String(item.id),
+    (item, id) =>
+      overlayState.deletedDomainIds.has(item.domainId) ||
+      overlayState.deletedKeywordIds.has(Number(id)),
+  );
+
+  if (!keyword) {
+    return null;
+  }
+
+  return {
+    id: keyword.id,
+    domainId: keyword.domainId,
+    title: keyword.title,
+    title_lower: keyword.title_lower,
+    star_keyword: keyword.star_keyword,
+    location: keyword.location,
+    tagIds: keyword.tagIds,
+    notes: keyword.notes,
+    latest_fetch: keyword.latest_fetch,
+    created_at: keyword.created_at,
+    updated_at: keyword.updated_at,
+    preferred_url: keyword.preferred_url,
+    search_volume: keyword.search_volume,
+    current: keyword.current,
+    previous: keyword.previous,
+    status: keyword.status,
+    statusChecksRemaining: keyword.statusChecksRemaining,
+  };
+}
+
 export async function getDomainsView(dateRanges?: DateRange[]) {
   const tenantId = await getCurrentTenantId();
   await ensureDatabase(tenantId);
   const includeComparison = Boolean(dateRanges && dateRanges.length > 1);
 
-  const [domains, aggregatedKeywords] = await Promise.all([
-    RankTrackerDomainModel.find({ tenantId })
-      .select({
-        _id: 0,
-        id: 1,
-        team: 1,
-        display_name: 1,
-        url: 1,
-      })
-      .lean(),
-    RankTrackerKeywordModel.aggregate<DomainAggregationRow>([
-      {
-        $match: {
-          tenantId,
-        },
-      },
-      {
-        $group: {
-          _id: "$domainId",
-          total_keywords: { $sum: 1 },
-          clicks0: { $sum: { $ifNull: ["$current.clicks", 0] } },
-          impressions0: { $sum: { $ifNull: ["$current.impressions", 0] } },
-          position0: { $avg: { $ifNull: ["$current.position", 0] } },
-          range0_0_3: {
-            $sum: {
-              $cond: [{ $lte: ["$current.position", 3] }, 1, 0],
-            },
-          },
-          range0_3_10: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $gt: ["$current.position", 3] },
-                    { $lte: ["$current.position", 10] },
-                  ],
-                },
-                1,
-                0,
-              ],
-            },
-          },
-          range0_10_20: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $gt: ["$current.position", 10] },
-                    { $lte: ["$current.position", 20] },
-                  ],
-                },
-                1,
-                0,
-              ],
-            },
-          },
-          range0_20_plus: {
-            $sum: {
-              $cond: [{ $gt: ["$current.position", 20] }, 1, 0],
-            },
-          },
-          clicks1: { $sum: { $ifNull: ["$previous.clicks", 0] } },
-          impressions1: { $sum: { $ifNull: ["$previous.impressions", 0] } },
-          position1: { $avg: { $ifNull: ["$previous.position", 0] } },
-          range1_0_3: {
-            $sum: {
-              $cond: [{ $lte: ["$previous.position", 3] }, 1, 0],
-            },
-          },
-          range1_3_10: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $gt: ["$previous.position", 3] },
-                    { $lte: ["$previous.position", 10] },
-                  ],
-                },
-                1,
-                0,
-              ],
-            },
-          },
-          range1_10_20: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $gt: ["$previous.position", 10] },
-                    { $lte: ["$previous.position", 20] },
-                  ],
-                },
-                1,
-                0,
-              ],
-            },
-          },
-          range1_20_plus: {
-            $sum: {
-              $cond: [{ $gt: ["$previous.position", 20] }, 1, 0],
-            },
-          },
-        },
-      },
-    ]),
-  ]);
-  const aggregateByDomainId = new Map(
-    aggregatedKeywords.map((row) => [row._id, row]),
+  const domains = await listDomains();
+  const domainKeywords = await Promise.all(
+    domains.map((domain) => getKeywordsForDomain(domain.id)),
   );
 
   const records: any[] = [];
   const now = new Date().toISOString();
 
-  for (const domain of domains as unknown as MockDomain[]) {
-    const stats = aggregateByDomainId.get(domain.id);
+  domains.forEach((domain, index) => {
+    const keywords = domainKeywords[index] || [];
+    const currentStats = aggregateDomainRange(keywords, 0);
+    const previousStats = includeComparison
+      ? aggregateDomainRange(keywords, 1)
+      : null;
 
     records.push({
       id: domain.id,
@@ -176,25 +143,17 @@ export async function getDomainsView(dateRanges?: DateRange[]) {
       url: domain.url,
       latest_fetch: now,
       rank: 0,
-      total_keywords: stats?.total_keywords ?? 0,
-      range_stats: buildRangeStats(
-        stats
-          ? {
-              range_0_3: stats.range0_0_3,
-              range_3_10: stats.range0_3_10,
-              range_10_20: stats.range0_10_20,
-              range_20_plus: stats.range0_20_plus,
-            }
-          : undefined,
-      ),
-      overall_stats: {
-        position: Number((stats?.position0 ?? 0).toFixed(1)),
-        clicks: stats?.clicks0 ?? 0,
-        impressions: stats?.impressions0 ?? 0,
-      },
+      total_keywords: currentStats.total_keywords,
+      range_stats: buildRangeStats({
+        range_0_3: currentStats.range_stats[0]?.keyword_counts || 0,
+        range_3_10: currentStats.range_stats[1]?.keyword_counts || 0,
+        range_10_20: currentStats.range_stats[2]?.keyword_counts || 0,
+        range_20_plus: currentStats.range_stats[3]?.keyword_counts || 0,
+      }),
+      overall_stats: currentStats.overall_stats,
     });
 
-    if (includeComparison) {
+    if (includeComparison && previousStats) {
       records.push({
         id: domain.id,
         team: domain.team,
@@ -203,25 +162,17 @@ export async function getDomainsView(dateRanges?: DateRange[]) {
         url: domain.url,
         latest_fetch: now,
         rank: 0,
-        total_keywords: stats?.total_keywords ?? 0,
-        range_stats: buildRangeStats(
-          stats
-            ? {
-                range_0_3: stats.range1_0_3,
-                range_3_10: stats.range1_3_10,
-                range_10_20: stats.range1_10_20,
-                range_20_plus: stats.range1_20_plus,
-              }
-            : undefined,
-        ),
-        overall_stats: {
-          position: Number((stats?.position1 ?? 0).toFixed(1)),
-          clicks: stats?.clicks1 ?? 0,
-          impressions: stats?.impressions1 ?? 0,
-        },
+        total_keywords: previousStats.total_keywords,
+        range_stats: buildRangeStats({
+          range_0_3: previousStats.range_stats[0]?.keyword_counts || 0,
+          range_3_10: previousStats.range_stats[1]?.keyword_counts || 0,
+          range_10_20: previousStats.range_stats[2]?.keyword_counts || 0,
+          range_20_plus: previousStats.range_stats[3]?.keyword_counts || 0,
+        }),
+        overall_stats: previousStats.overall_stats,
       });
     }
-  }
+  });
 
   return records;
 }
@@ -244,33 +195,18 @@ export async function getDomainKeywordsView({
   const safePage = Math.max(page, 1);
   const skip = (safePage - 1) * safeLimit;
 
-  const [totalKeywords, domainKeywords] = await Promise.all([
-    RankTrackerKeywordModel.countDocuments({
-      tenantId,
-      domainId: String(domainId),
-    }),
-    RankTrackerKeywordModel.find({
-      tenantId,
-      domainId: String(domainId),
-    })
-      .sort({ created_at: -1, id: 1 })
-      .skip(skip)
-      .limit(safeLimit)
-      .lean(),
-  ]);
+  const allDomainKeywords = await getKeywordsForDomain(String(domainId));
+  const sortedKeywords = allDomainKeywords.sort(sortKeywordsForTable);
+  const domainKeywords = sortedKeywords.slice(skip, skip + safeLimit);
 
   const tagIds = Array.from(
-    new Set(
-      (domainKeywords as unknown as MockKeyword[]).flatMap(
-        (keyword) => keyword.tagIds,
-      ),
-    ),
+    new Set(domainKeywords.flatMap((keyword) => keyword.tagIds)),
   );
   const tags = await getTagsByIds(tagIds, tenantId);
   const tagsById = new Map(tags.map((tag) => [tag.id, tag]));
 
   const records: any[] = [];
-  for (const keyword of domainKeywords as unknown as MockKeyword[]) {
+  for (const keyword of domainKeywords) {
     const keywordTags = keyword.tagIds
       .map((id) => tagsById.get(id))
       .filter((tag): tag is MockTag => Boolean(tag));
@@ -303,7 +239,7 @@ export async function getDomainKeywordsView({
   }
 
   return {
-    count: totalKeywords,
+    count: sortedKeywords.length,
     next: null,
     previous: null,
     records,
@@ -321,17 +257,7 @@ export async function getDashboardView({
   await ensureDatabase(tenantId);
   const includeComparison = Boolean(dateRanges && dateRanges.length > 1);
 
-  const keywords = (await RankTrackerKeywordModel.find({
-    tenantId,
-    domainId: String(domainId),
-  })
-    .select({
-      _id: 0,
-      domainId: 1,
-      current: 1,
-      previous: 1,
-    })
-    .lean()) as unknown as MockKeyword[];
+  const keywords = await getKeywordsForDomain(String(domainId));
 
   const records: any[] = [];
 
@@ -369,20 +295,7 @@ export async function getKeywordModalView({
 }) {
   const tenantId = await getCurrentTenantId();
   await ensureDatabase(tenantId);
-  const keyword = (await RankTrackerKeywordModel.findOne({
-    tenantId,
-    id: Number(keywordId),
-  })
-    .select({
-      _id: 0,
-      id: 1,
-      domainId: 1,
-      title: 1,
-      star_keyword: 1,
-      "current.daily_stats": 1,
-      "previous.daily_stats": 1,
-    })
-    .lean()) as unknown as MockKeyword | null;
+  const keyword = await getMergedKeywordById(tenantId, Number(keywordId));
 
   if (!keyword) return null;
 

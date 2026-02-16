@@ -1,4 +1,7 @@
-import { ensureDatabase } from "../core/database";
+import {
+  ensureDatabase,
+  SHARED_SEED_TENANT_ID,
+} from "../core/database";
 import { getCurrentTenantId } from "../core/tenant";
 import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
@@ -9,6 +12,22 @@ import {
   normalizeSiteUrl,
   seededNoise,
 } from "../utils/normalizers";
+import {
+  getTenantOverlayState,
+  mergeTenantAndSeedDocuments,
+} from "./overlay-utils.service";
+
+type DomainDoc = {
+  tenantId: string;
+  id: string;
+  url: string;
+};
+
+type GSCDoc = {
+  tenantId: string;
+  siteUrl: string;
+  records: MockGSCRecord[];
+};
 
 function buildSiteUrlCandidates(rawSiteUrl: string): string[] {
   const normalizedSiteUrl = normalizeSiteUrl(rawSiteUrl);
@@ -25,6 +44,53 @@ function buildSiteUrlCandidates(rawSiteUrl: string): string[] {
       `https://www.${normalizedDomain}`,
       `http://www.${normalizedDomain}`,
     ]),
+  ).map((siteUrl) => normalizeSiteUrl(siteUrl));
+}
+
+async function getVisibleDomainSiteUrls(tenantId: string): Promise<Set<string>> {
+  const [overlayState, domains] = await Promise.all([
+    getTenantOverlayState(tenantId),
+    RankTrackerDomainModel.find({
+      tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+    })
+      .select({ _id: 0, tenantId: 1, id: 1, url: 1 })
+      .lean(),
+  ]);
+
+  const mergedDomains = mergeTenantAndSeedDocuments(
+    tenantId,
+    domains as DomainDoc[],
+    (domain) => domain.id,
+    (_, id) => overlayState.deletedDomainIds.has(id),
+  );
+
+  return new Set(mergedDomains.map((domain) => normalizeSiteUrl(domain.url)));
+}
+
+async function getMergedGSCBySiteUrls(
+  tenantId: string,
+  siteUrls: string[],
+): Promise<Map<string, MockGSCRecord[]>> {
+  if (!siteUrls.length) {
+    return new Map<string, MockGSCRecord[]>();
+  }
+
+  const docs = await RankTrackerGSCSiteModel.find({
+    tenantId: { $in: [tenantId, SHARED_SEED_TENANT_ID] },
+    siteUrl: { $in: siteUrls },
+  })
+    .select({ _id: 0, tenantId: 1, siteUrl: 1, records: 1 })
+    .lean();
+
+  const merged = mergeTenantAndSeedDocuments(
+    tenantId,
+    docs as GSCDoc[],
+    (doc) => doc.siteUrl,
+    () => false,
+  );
+
+  return new Map(
+    merged.map((doc) => [doc.siteUrl, (doc.records || []) as MockGSCRecord[]]),
   );
 }
 
@@ -32,16 +98,28 @@ export async function getGSCKeywords(siteUrl: string) {
   const tenantId = await getCurrentTenantId();
   await ensureDatabase(tenantId);
 
-  const matched = await RankTrackerGSCSiteModel.findOne({
-    tenantId,
-    siteUrl: { $in: buildSiteUrlCandidates(siteUrl) },
-  }).lean();
+  const visibleSiteUrls = await getVisibleDomainSiteUrls(tenantId);
+  const candidates = buildSiteUrlCandidates(siteUrl).filter((candidate) =>
+    visibleSiteUrls.has(candidate),
+  );
 
-  if (matched) {
+  if (!candidates.length) {
     return {
       success: true,
-      records: matched.records || [],
+      records: [],
     };
+  }
+
+  const bySiteUrl = await getMergedGSCBySiteUrls(tenantId, candidates);
+
+  for (const candidate of candidates) {
+    const records = bySiteUrl.get(candidate);
+    if (records) {
+      return {
+        success: true,
+        records,
+      };
+    }
   }
 
   return {
@@ -62,27 +140,17 @@ export async function getGSCKeywordsBySiteUrls(siteUrls: string[]) {
     return new Map<string, { success: true; records: MockGSCRecord[] }>();
   }
 
-  const docs = await RankTrackerGSCSiteModel.find({
-    tenantId,
-    siteUrl: { $in: normalized },
-  })
-    .select({ _id: 0, siteUrl: 1, records: 1 })
-    .lean();
-
-  const bySiteUrl = new Map(
-    docs.map((doc) => [
-      doc.siteUrl,
-      {
-        success: true as const,
-        records: (doc.records || []) as MockGSCRecord[],
-      },
-    ]),
-  );
+  const visibleSiteUrls = await getVisibleDomainSiteUrls(tenantId);
+  const allowed = normalized.filter((siteUrl) => visibleSiteUrls.has(siteUrl));
+  const bySiteUrl = await getMergedGSCBySiteUrls(tenantId, allowed);
 
   return new Map(
     normalized.map((siteUrl) => [
       siteUrl,
-      bySiteUrl.get(siteUrl) || { success: true as const, records: [] },
+      {
+        success: true as const,
+        records: bySiteUrl.get(siteUrl) || [],
+      },
     ]),
   );
 }
@@ -97,16 +165,35 @@ export async function getKeywordInsights({
   const tenantId = await getCurrentTenantId();
   await ensureDatabase(tenantId);
 
-  let gscEntry = await RankTrackerGSCSiteModel.findOne({
-    tenantId,
-    siteUrl: { $in: buildSiteUrlCandidates(domain) },
-  }).lean();
+  const visibleSiteUrls = await getVisibleDomainSiteUrls(tenantId);
+  const requestedCandidates = buildSiteUrlCandidates(domain).filter((candidate) =>
+    visibleSiteUrls.has(candidate),
+  );
 
-  if (!gscEntry) {
-    gscEntry = await RankTrackerGSCSiteModel.findOne({ tenantId }).lean();
+  const candidateSiteUrls = requestedCandidates.length
+    ? requestedCandidates
+    : Array.from(visibleSiteUrls);
+  const bySiteUrl = await getMergedGSCBySiteUrls(tenantId, candidateSiteUrls);
+
+  let source: MockGSCRecord[] = [];
+
+  for (const candidate of requestedCandidates) {
+    const records = bySiteUrl.get(candidate);
+    if (records && records.length) {
+      source = records;
+      break;
+    }
   }
 
-  const source = (gscEntry?.records || []) as MockGSCRecord[];
+  if (!source.length) {
+    for (const records of bySiteUrl.values()) {
+      if (records.length) {
+        source = records;
+        break;
+      }
+    }
+  }
+
   const keywordFilter =
     keywords && keywords.length > 0
       ? new Set(keywords.map((keyword) => keyword.toLowerCase()))
@@ -182,13 +269,8 @@ export async function getGSCProperties() {
     "sc-domain:cleanbeautyhub.dk",
   ];
 
-  const domains = (await RankTrackerDomainModel.find(
-    { tenantId },
-    { url: 1 },
-  ).lean()) as Array<{ url: string }>;
-  const existingProperties = domains.map((domain) =>
-    normalizeSiteUrl(domain.url),
-  );
+  const visibleSiteUrls = await getVisibleDomainSiteUrls(tenantId);
+  const existingProperties = Array.from(visibleSiteUrls);
 
   const uniqueProperties = Array.from(
     new Set([...existingProperties, ...suggestedProperties]),
