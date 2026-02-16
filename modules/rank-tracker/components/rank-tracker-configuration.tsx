@@ -18,7 +18,7 @@ import {
   PopoverTrigger,
 } from "@/modules/core/components/ui/popover";
 import { cn } from "@/modules/core/lib/utils";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Domain } from "../types/index";
 
 interface RankTrackerConfigurationProps {
@@ -29,8 +29,6 @@ export default function RankTrackerConfiguration({
   domains,
 }: RankTrackerConfigurationProps) {
   const currentPath = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
 
   const domain = useRankTrackerStore((state) => state.property);
@@ -40,16 +38,6 @@ export default function RankTrackerConfiguration({
     if (!domainId || !domains?.some((domain) => domain.id === domainId)) return;
     changeDomain(domainId);
     setOpen(false);
-
-    const params = new URLSearchParams(searchParams?.toString() || "");
-    params.set("domain", domainId);
-    params.delete("redirect");
-    if (!params.get("tab")) {
-      params.set("tab", "keyword");
-    }
-
-    const targetPath = currentPath === "/" ? "/domain" : currentPath;
-    router.push(`${targetPath}?${params.toString()}`, { scroll: false });
   };
 
   if (currentPath === "/") {

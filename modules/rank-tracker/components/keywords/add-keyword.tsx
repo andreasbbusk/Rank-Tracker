@@ -39,7 +39,6 @@ import {
   languageCodes,
 } from "@/modules/rank-tracker/constants/iso-countries";
 import { Domain, Keyword } from "@/modules/rank-tracker/types";
-import { createDomainsView } from "../../actions/ranker-views.actions";
 
 import { GSCKeywordPopover } from "./gsc-keyword-popover";
 
@@ -148,7 +147,10 @@ export const AddKeywordDialog = ({
   currentKeywords = [],
 }: AddKeywordDialogProps) => {
   const searchParams = useSearchParams();
-  const domainId = defaultDomainId?.toString() || searchParams.get("domain");
+  const targetDomainId =
+    defaultDomainId?.toString() ||
+    currentDomain?.id?.toString() ||
+    searchParams.get("domain");
 
   // Form and UI state
   const [lineCount, setLineCount] = useState(1);
@@ -161,6 +163,7 @@ export const AddKeywordDialog = ({
   const [currentTeam, setCurrentTeam] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
+  const tagsCacheRef = useRef<Record<string, string[]>>({});
 
   // Refs
   const lineNumbersRef = useRef<HTMLOListElement>(null);
@@ -220,23 +223,32 @@ export const AddKeywordDialog = ({
   // Load tags
   useEffect(() => {
     const fetchTags = async () => {
+      if (!isOpen || !targetDomainId) {
+        return;
+      }
+
+      const cachedTags = tagsCacheRef.current[targetDomainId];
+      if (cachedTags) {
+        setAvailableTags(cachedTags);
+        return;
+      }
+
       setIsLoadingTags(true);
       try {
-        const domain = searchParams.get("domain");
-        if (!domain) return;
-
-        const tagsData = await listTags(domain);
+        const tagsData = await listTags(targetDomainId);
+        let normalizedTags: string[] = [];
         if (tagsData && Array.isArray(tagsData.results)) {
-          setAvailableTags(
-            tagsData.results.map((tag: { name: string }) => tag.name),
+          normalizedTags = tagsData.results.map(
+            (tag: { name: string }) => tag.name,
           );
         } else if (tagsData && Array.isArray(tagsData)) {
-          setAvailableTags(
-            tagsData.map((tag: { name: string } | string) =>
-              typeof tag === "string" ? tag : tag.name,
-            ),
+          normalizedTags = tagsData.map((tag: { name: string } | string) =>
+            typeof tag === "string" ? tag : tag.name,
           );
         }
+
+        tagsCacheRef.current[targetDomainId] = normalizedTags;
+        setAvailableTags(normalizedTags);
       } catch (error) {
         console.error("Error loading tags:", error);
         toast.error("Der opstod en fejl ved indlæsning af tags");
@@ -245,11 +257,11 @@ export const AddKeywordDialog = ({
       }
     };
     fetchTags();
-  }, [searchParams]);
+  }, [targetDomainId, isOpen]);
 
   // Handle form submission
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
-    if (!domainId) {
+    if (!targetDomainId) {
       toast("Fejl ved oprettelse af søgeord", {
         description: "Intet domæne valgt.",
       });
@@ -293,7 +305,7 @@ export const AddKeywordDialog = ({
 
       // Common data for all keywords
       const commonData = {
-        domain: parseInt(domainId),
+        domain: parseInt(targetDomainId, 10),
         star_keyword: values.star_keyword,
         tags: values.tags,
       };
@@ -328,13 +340,10 @@ export const AddKeywordDialog = ({
           onSave();
         }
 
-        // Reset form and close dialog
-        form.reset();
-        onOpenChange(false);
-
         // Navigate to update view with new parameters
         const navigationParams = new URLSearchParams();
-        navigationParams.set("domain", domainId);
+        navigationParams.set("domain", targetDomainId);
+        navigationParams.set("tab", "keyword");
 
         // Add current date ranges if they exist
         const range = searchParams.get("range");
@@ -343,13 +352,10 @@ export const AddKeywordDialog = ({
         if (range) navigationParams.set("range", range);
         if (rangeCompare) navigationParams.set("rangeCompare", rangeCompare);
 
-        // Add redirect parameter to trigger refresh
-        navigationParams.set("redirect", "true");
-
         // Build URL and navigate - using a completely new URL instead of modifying the existing one
         const url = `/domain?${navigationParams.toString()}`;
-
-        window.location.href = url;
+        window.location.assign(url);
+        return;
       } catch (error) {
         console.error("Error during keyword creation or processing:", error);
         toast.error("Fejl ved oprettelse af søgeord", {
@@ -427,59 +433,6 @@ export const AddKeywordDialog = ({
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       if (!newOpen) {
-        // Check if we need to refresh data from successful keyword creation
-        const needsUpdate =
-          typeof window !== "undefined" &&
-          (window as any).KEYWORD_TABLE_NEEDS_UPDATE === true;
-
-        const domainId =
-          typeof window !== "undefined"
-            ? (window as any).KEYWORD_TABLE_UPDATE_DOMAIN
-            : null;
-
-        if (needsUpdate && domainId) {
-          console.log(
-            "Dialog closing after keyword creation, refreshing table for domain:",
-            domainId,
-          );
-
-          // Try multiple refresh approaches to ensure UI updates
-          try {
-            // 1. Try to directly call the table's update function
-            if ((window as any)[`refreshKeywordTable_${domainId}`]) {
-              console.log("Calling direct refresh function");
-              (window as any)[`refreshKeywordTable_${domainId}`]();
-            }
-
-            // 2. Trigger an event for all listeners
-            const updateEvent = new CustomEvent("keyword-table-update", {
-              detail: {
-                domainId,
-                timestamp: Date.now(),
-                source: "dialog-close",
-                forceRefresh: true,
-              },
-            });
-            console.log("Dispatching keyword-table-update event");
-            window.dispatchEvent(updateEvent);
-
-            // 3. Force server-side revalidation
-            createDomainsView().catch((error) => {
-              console.error("Error refreshing domain view:", error);
-            });
-
-            // Reset flags after refresh attempt
-            (window as any).KEYWORD_TABLE_NEEDS_UPDATE = false;
-          } catch (e) {
-            console.error("Error triggering table update from dialog close", e);
-          }
-        } else {
-          // Standard cleanup even if no new keywords
-          createDomainsView().catch((error) => {
-            console.error("Error refreshing domain view:", error);
-          });
-        }
-
         // Reset form
         form.reset();
         setLineCount(1);

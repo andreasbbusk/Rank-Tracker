@@ -35,7 +35,6 @@ type Props = {
     impressionsType?: string;
     impressionsValue1?: string;
     impressionsValue2?: string;
-    redirect?: string;
   }>;
 };
 
@@ -45,7 +44,6 @@ export default async function Page({ searchParams }: Props) {
   const domainId = sp.domain;
   const currentTab = sp.tab || "keyword";
   const { dateRanges } = getDateRanges({ searchParams: sp });
-  const shouldRedirect = sp.redirect === "true";
 
   if (!domainId) {
     redirect("/");
@@ -59,8 +57,6 @@ export default async function Page({ searchParams }: Props) {
         domainId={domainId}
         currentTab={currentTab}
         dateRanges={dateRanges}
-        shouldRefresh={shouldRedirect}
-        searchParams={sp}
       />
     </Suspense>
   );
@@ -70,14 +66,10 @@ async function Content({
   domainId,
   currentTab,
   dateRanges,
-  shouldRefresh,
-  searchParams,
 }: {
   domainId: string;
   currentTab: string;
   dateRanges: { start_date: string; end_date: string }[];
-  shouldRefresh: boolean;
-  searchParams: any;
 }) {
   const [domain, keywordsView, tagsResponse] = await Promise.all([
     getDomain(domainId),
@@ -116,47 +108,8 @@ async function Content({
     to: new Date(range.end_date),
   }));
 
-  const needsRefreshScript = shouldRefresh && domainId;
-
   return (
     <>
-      {needsRefreshScript && (
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                window.KEYWORD_TABLE_NEEDS_UPDATE = true;
-                window.KEYWORD_TABLE_UPDATE_DOMAIN = "${domainId}";
-
-                setTimeout(() => {
-                  try {
-                    if (window["refreshKeywordTable_${domainId}"]) {
-                      window["refreshKeywordTable_${domainId}"]();
-                    }
-
-                    const updateEvent = new CustomEvent('keyword-table-update', {
-                      detail: {
-                        domainId: "${domainId}",
-                        timestamp: Date.now(),
-                        source: 'auto-refresh'
-                      }
-                    });
-                    window.dispatchEvent(updateEvent);
-
-                    if (window.history && window.history.replaceState) {
-                      const url = new URL(window.location.href);
-                      url.searchParams.delete('redirect');
-                      window.history.replaceState({}, '', url.toString());
-                    }
-                  } catch (e) {
-                    console.error('Error triggering keyword table refresh', e);
-                  }
-                }, 500);
-              })();
-            `,
-          }}
-        />
-      )}
       <RankerActionBar
         keywords={domainKeywords}
         selectedDateRanges={selectedDateRanges}

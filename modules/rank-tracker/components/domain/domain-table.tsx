@@ -20,7 +20,6 @@ import {
   Loader2,
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/modules/core/components/ui/button";
 import {
@@ -62,7 +61,6 @@ import {
   number,
 } from "@/modules/core/utils/sorters";
 import { DomainWithAnalytics } from "@/modules/rank-tracker/types/index";
-import { createDomainsView } from "../../actions/ranker-views.actions";
 import useDomainTable from "../../hooks/use-domain-table";
 import { AddKeywordDialogWithProvider } from "../keywords/add-keyword";
 import { AddDomainDialog } from "./add-domain";
@@ -478,43 +476,9 @@ export function DomainTable<TData extends DomainWithAnalytics>({
           <AddKeywordDialogWithProvider
             isOpen={showKeywordDialog}
             onOpenChange={(open) => {
+              setShowKeywordDialog(open);
               if (!open) {
-                // First update the dialog state
-                setShowKeywordDialog(false);
-
-                // Only refresh data if we actually had a domain selected
-                if (selectedDomainForKeywords) {
-                  // Use Promise chaining to ensure proper order of operations
-                  createDomainsView([
-                    {
-                      start_date: new Date(
-                        Date.now() - 30 * 24 * 60 * 60 * 1000,
-                      )
-                        .toISOString()
-                        .split("T")[0],
-                      end_date: new Date().toISOString().split("T")[0],
-                    },
-                  ])
-                    .then(() => handleDomainCreated(selectedDomainForKeywords))
-                    .catch((error) => {
-                      console.error("Error refreshing domain view:", error);
-                      toast(
-                        "Der opstod en fejl ved opdatering af domæne data",
-                        {
-                          description: "Prøv venligst igen senere.",
-                        },
-                      );
-                    })
-                    .finally(() => {
-                      // Clear the selected domain last to prevent any race conditions
-                      setSelectedDomainForKeywords(null);
-                    });
-                } else {
-                  // If no domain was selected, just clear the state
-                  setSelectedDomainForKeywords(null);
-                }
-              } else {
-                setShowKeywordDialog(true);
+                setSelectedDomainForKeywords(null);
               }
             }}
             defaultDomainId={

@@ -170,23 +170,6 @@ function KeywordTableWrapperComponent({
       });
     }
 
-    // Only modify the URL if we need to fix a redirect loop
-    if (typeof window !== "undefined") {
-      const currentUrl = new URL(window.location.href);
-      const isOnDomainPage = window.location.pathname.includes("/domain");
-      const hasRedirectParam = currentUrl.searchParams.has("redirect");
-
-      // If we're on the domain page with a redirect parameter, clean up the URL
-      if (isOnDomainPage && hasRedirectParam) {
-        currentUrl.searchParams.delete("redirect");
-
-        // Use history.replaceState to update the URL without causing a navigation
-        if (window.history && window.history.replaceState) {
-          window.history.replaceState({}, "", currentUrl.toString());
-        }
-      }
-    }
-
     // Add timeout to ensure we're not stuck in loading state if something fails
     refreshTimerRef.current = setTimeout(() => {
       setIsRefreshing(false);

@@ -7,6 +7,14 @@ import useStore from "@/modules/core/hooks/useStore";
 import { useCallback, useEffect, useRef } from "react";
 import { Domain } from "../types";
 
+function normalizeUrl(url: string) {
+  const [path, query = ""] = url.split("?");
+  const params = new URLSearchParams(query);
+  params.sort();
+  const normalizedQuery = params.toString();
+  return normalizedQuery ? `${path}?${normalizedQuery}` : path;
+}
+
 export default function RankTrackerSearchParamsWrapper({
   domains,
   children,
@@ -32,8 +40,32 @@ export default function RankTrackerSearchParamsWrapper({
   const placeholderDateRange = `range=${dateRanges[0].start_date}_${dateRanges[0].end_date}`;
 
   const currentDomain = searchParams.get("domain");
-  const redirect = searchParams.get("redirect");
   const currentTab = searchParams.get("tab");
+  const currentRange = searchParams.get("range");
+  const currentRangeCompare = searchParams.get("rangeCompare");
+  const currentFilterParams = new URLSearchParams(searchParams.toString());
+  currentFilterParams.delete("domain");
+  currentFilterParams.delete("tab");
+  currentFilterParams.delete("range");
+  currentFilterParams.delete("rangeCompare");
+  const currentFilters = currentFilterParams.toString();
+
+  const effectiveProperty = property ?? currentDomain;
+  const effectiveTab = tab || currentTab || (effectiveProperty ? "keyword" : null);
+  const effectiveDateRange =
+    dateRange && dateRange.trim().length > 0
+      ? dateRange
+      : currentRange
+        ? `range=${currentRange}${currentRangeCompare ? `&rangeCompare=${currentRangeCompare}` : ""}`
+        : placeholderDateRange;
+  const effectiveFilters =
+    filters && filters.trim().length > 0 ? filters : currentFilters;
+
+  const isStoreReady =
+    property !== undefined &&
+    dateRange !== undefined &&
+    tab !== undefined &&
+    filters !== undefined;
   // Check if we're on the main page with no domain parameter
   const isMainPage = pathname === "/" && !currentDomain;
 
@@ -47,11 +79,7 @@ export default function RankTrackerSearchParamsWrapper({
     let querystring = "";
 
     // Add date range parameters
-    if (dateRange) {
-      querystring += dateRange;
-    } else {
-      querystring += placeholderDateRange;
-    }
+    querystring += effectiveDateRange;
 
     // If we're on the main page with no domain, only include date range parameters
     if (isMainPage) {
@@ -61,7 +89,7 @@ export default function RankTrackerSearchParamsWrapper({
     // For all other cases, include domain and tab as appropriate
 
     // Add tab parameter - use current tab, or default to "keyword" if domain exists but no tab is set
-    const activeTab = tab || (property ? "keyword" : null);
+    const activeTab = effectiveTab;
     if (activeTab) {
       if (querystring) {
         querystring = `tab=${activeTab}&${querystring}`;
@@ -71,56 +99,102 @@ export default function RankTrackerSearchParamsWrapper({
     }
 
     // Add domain parameter if it exists in the store
-    if (property) {
+    if (effectiveProperty) {
       if (querystring) {
-        querystring = `domain=${property}&${querystring}`;
+        querystring = `domain=${effectiveProperty}&${querystring}`;
       } else {
-        querystring = `domain=${property}`;
+        querystring = `domain=${effectiveProperty}`;
       }
     }
 
     // Add filters if available
-    if (filters) {
-      querystring += `&${filters}`;
+    if (effectiveFilters) {
+      querystring += `&${effectiveFilters}`;
     }
 
     return `${pathname}?${querystring}`;
   }, [
-    property,
-    dateRange,
-    tab,
-    filters,
+    effectiveDateRange,
+    effectiveTab,
+    effectiveProperty,
+    effectiveFilters,
     isMainPage,
+    pathname,
+  ]);
+
+  // Keep store state aligned with URL state after navigations (including hard redirects)
+  useEffect(() => {
+    const urlDateRange = currentRange
+      ? `range=${currentRange}${currentRangeCompare ? `&rangeCompare=${currentRangeCompare}` : ""}`
+      : placeholderDateRange;
+
+    const urlTab =
+      currentTab ||
+      (currentDomain && pathname.includes("/domain") ? "keyword" : null);
+
+    const nextState: Partial<{
+      property: string | null;
+      tab: "keyword" | "dashboard" | "content-intelligence";
+      dateRanges: string;
+      filters: string;
+    }> = {};
+
+    const storeState = useRankTrackerStore.getState();
+    const nextProperty = currentDomain || null;
+
+    if (storeState.property !== nextProperty) {
+      nextState.property = nextProperty;
+    }
+
+    if (
+      urlTab &&
+      (urlTab === "keyword" ||
+        urlTab === "dashboard" ||
+        urlTab === "content-intelligence") &&
+      storeState.tab !== urlTab
+    ) {
+      nextState.tab = urlTab;
+    }
+
+    if (storeState.dateRanges !== urlDateRange) {
+      nextState.dateRanges = urlDateRange;
+    }
+
+    if (storeState.filters !== currentFilters) {
+      nextState.filters = currentFilters;
+    }
+
+    if (Object.keys(nextState).length > 0) {
+      useRankTrackerStore.setState(nextState);
+    }
+  }, [
+    currentDomain,
+    currentFilters,
+    currentRange,
+    currentRangeCompare,
+    currentTab,
     pathname,
     placeholderDateRange,
   ]);
 
-  useEffect(() => {
-    if (redirect) {
-      useRankTrackerStore.setState({ property: currentDomain });
-
-      // When we're redirecting with a domain set, we'll set the tab in the store
-      // This will prevent unnecessary URL updates
-      if (currentDomain && !currentTab) {
-        useRankTrackerStore.setState({ tab: "keyword" });
-        shouldSkipNextUpdate.current = true;
-      }
-    }
-  }, [redirect, currentDomain, currentTab]);
-
   // Set default tab to "keyword" if a domain is selected but no tab is set
   useEffect(() => {
+    if (!isStoreReady) {
+      return;
+    }
+
     // If we just have the domain parameter but no tab, we'll soon be updating
     // to add tab=keyword - mark that we should skip the next URL update
     if (isMissingOnlyTab && property && !tab) {
       shouldSkipNextUpdate.current = true;
       useRankTrackerStore.setState({ tab: "keyword" });
     }
-  }, [property, tab, isMissingOnlyTab]);
+  }, [property, tab, isMissingOnlyTab, isStoreReady]);
 
   useEffect(() => {
-    // Skip if there's a redirect parameter - we'll handle this separately
-    if (redirect) return;
+    if (!isStoreReady) {
+      return;
+    }
 
     // If we should skip this update, reset the flag and return
     if (shouldSkipNextUpdate.current) {
@@ -136,12 +210,25 @@ export default function RankTrackerSearchParamsWrapper({
       const url = new URL(window.location.href);
       url.searchParams.set("tab", "keyword");
       window.history.replaceState({}, "", url.toString());
-      prevUrlRef.current = url.toString();
+      prevUrlRef.current = `${url.pathname}${url.search}`;
+      return;
+    }
+
+    const currentUrl = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+    const normalizedCurrentUrl = normalizeUrl(currentUrl);
+    const normalizedNewUrl = normalizeUrl(newUrl);
+
+    // Avoid pushing identical URLs (also handles remounts and query order changes)
+    if (normalizedNewUrl === normalizedCurrentUrl) {
+      prevUrlRef.current = currentUrl;
       return;
     }
 
     // Only update if the URL has actually changed
-    if (newUrl !== prevUrlRef.current) {
+    if (
+      !prevUrlRef.current ||
+      normalizedNewUrl !== normalizeUrl(prevUrlRef.current)
+    ) {
       prevUrlRef.current = newUrl;
 
       // Update the URL
@@ -149,7 +236,15 @@ export default function RankTrackerSearchParamsWrapper({
         scroll: false,
       });
     }
-  }, [constructUrl, redirect, router, isMissingOnlyTab, currentDomain]);
+  }, [
+    constructUrl,
+    router,
+    isMissingOnlyTab,
+    currentDomain,
+    pathname,
+    searchParams,
+    isStoreReady,
+  ]);
 
   return <>{children}</>;
 }

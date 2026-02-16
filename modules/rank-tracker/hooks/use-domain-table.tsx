@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { deleteDomain, updateDomain } from "../actions/ranker-domain.actions";
 import { createDomainsView } from "../actions/ranker-views.actions";
 import { Domain, DomainWithAnalytics } from "../types/index";
-import { getDateRanges } from "@/modules/analytics/utils/helpers/getDateRanges";
 
 export default function useDomainTable() {
   const [domainList, setDomainList] = useState<DomainWithAnalytics[]>([]);
@@ -25,13 +24,6 @@ export default function useDomainTable() {
   );
   const [lastNavigationTime, setLastNavigationTime] = useState<number>(0);
   const navigationTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const { dataRangeString } = getDateRanges({
-    searchParams: {
-      range: searchParams.get("range") || "",
-      rangeCompare: searchParams.get("rangeCompare") || "",
-    },
-  });
 
   const [isPending, startTransition] = useTransition();
 
@@ -177,9 +169,6 @@ export default function useDomainTable() {
     if (range) navigationParams.set("range", range);
     if (rangeCompare) navigationParams.set("rangeCompare", rangeCompare);
 
-    // Add redirect parameter to trigger data refresh
-    navigationParams.set("redirect", "true");
-
     const url = `/domain?${navigationParams.toString()}`;
 
     // Use the router for navigation when possible to maintain React context
@@ -189,17 +178,6 @@ export default function useDomainTable() {
   const handleAddKeywords = async (domain: Domain, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      let formattedUrl = domain.url;
-      if (!formattedUrl.startsWith("http")) {
-        formattedUrl = `sc-domain:${formattedUrl.replace(/^www\./, "")}`;
-      }
-
-      // Set global tracking variables used by the AddKeywordDialog
-      if (typeof window !== "undefined") {
-        (window as any).KEYWORD_TABLE_NEEDS_UPDATE = true;
-        (window as any).KEYWORD_TABLE_UPDATE_DOMAIN = domain.id;
-      }
-
       setSelectedDomainForKeywords(domain);
       setShowKeywordDialog(true);
     } catch (error) {
@@ -244,37 +222,6 @@ export default function useDomainTable() {
       setShowProgressModal(false);
     }
   };
-
-  // Cleanup navigation state immediately when URL has the redirect parameter
-  useEffect(() => {
-    const hasRedirect = searchParams.get("redirect") === "true";
-
-    if (hasRedirect && typeof window !== "undefined") {
-      // Clean up the URL by removing the redirect parameter
-      const url = new URL(window.location.href);
-      url.searchParams.delete("redirect");
-
-      // Replace the URL without causing a navigation
-      window.history.replaceState({}, "", url.toString());
-
-      // Clear any existing navigation timer
-      if (navigationTimerRef.current) {
-        clearTimeout(navigationTimerRef.current);
-      }
-
-      // Set a new timer to clear navigation state
-      navigationTimerRef.current = setTimeout(() => {
-        setNavigatingDomainId(null);
-        sessionStorage.removeItem("currentNavigatingDomainId");
-      }, 500);
-    }
-
-    return () => {
-      if (navigationTimerRef.current) {
-        clearTimeout(navigationTimerRef.current);
-      }
-    };
-  }, [searchParams]);
 
   return {
     handleDelete,
