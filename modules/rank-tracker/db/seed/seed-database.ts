@@ -1,6 +1,7 @@
 import {
   MockDatabase,
   MockDomain,
+  MockGSCRecord,
   MockKeyword,
   MockKeywordNote,
   MockTag,
@@ -17,7 +18,38 @@ import {
   slugify,
 } from "../utils/normalizers";
 
-export const SEED_VERSION = 3;
+export const SEED_VERSION = 4;
+
+const TRACKED_KEYWORDS_PER_DOMAIN = 96;
+const GSC_KEYWORDS_PER_DOMAIN = 650;
+const GSC_QUERY_SUFFIXES = [
+  "guide",
+  "pris",
+  "priser",
+  "anmeldelse",
+  "best i test",
+  "alternativer",
+  "vs",
+  "sammenligning",
+  "tips",
+  "2026",
+];
+const GSC_QUERY_PREFIXES = [
+  "bedste",
+  "billig",
+  "premium",
+  "hvordan",
+  "hvad er",
+  "hvorfor",
+];
+const GSC_QUERY_LOCALS = [
+  "danmark",
+  "københavn",
+  "aarhus",
+  "odense",
+  "for små virksomheder",
+  "for ecommerce",
+];
 
 type KeywordBlueprint = {
   base: string[];
@@ -222,6 +254,77 @@ const DOMAIN_BLUEPRINTS: Array<{
   },
 ];
 
+function buildExpandedGSCRecordsForDomain({
+  domain,
+  domainKeywords,
+}: {
+  domain: (typeof DOMAIN_BLUEPRINTS)[number];
+  domainKeywords: MockKeyword[];
+}): MockGSCRecord[] {
+  const trackedRecords = gscRecordsFromKeywords(domainKeywords);
+  const generatedLibrary = buildKeywordLibrary({
+    base: domain.keywords.base,
+    modifiers: domain.keywords.modifiers,
+    intents: domain.keywords.intents,
+  });
+
+  const baseQueries = Array.from(
+    new Set([
+      ...domainKeywords.map((keyword) => keyword.title),
+      ...(domain.keywords.custom || []),
+      ...domain.keywords.base,
+      ...generatedLibrary,
+    ]),
+  );
+
+  const expandedQueries = new Set<string>(baseQueries);
+
+  for (const query of baseQueries) {
+    for (const suffix of GSC_QUERY_SUFFIXES) {
+      expandedQueries.add(`${query} ${suffix}`.trim());
+    }
+
+    for (const prefix of GSC_QUERY_PREFIXES) {
+      expandedQueries.add(`${prefix} ${query}`.trim());
+    }
+
+    for (const local of GSC_QUERY_LOCALS) {
+      expandedQueries.add(`${query} ${local}`.trim());
+    }
+  }
+
+  const syntheticRecords: MockGSCRecord[] = Array.from(expandedQueries).map(
+    (query, index) => {
+      const seed = hashString(`${domain.id}-${query}-${index}`);
+      const impressions = 80 + (seed % 12000);
+      const ctrBase = 0.0075 + (seed % 240) / 10000;
+      const clicks = Math.max(1, Math.round(impressions * ctrBase));
+      const position = Number((1 + (seed % 640) / 10).toFixed(1));
+      const ctr = Number((clicks / impressions).toFixed(4));
+
+      return {
+        query,
+        clicks,
+        impressions,
+        ctr,
+        position,
+      };
+    },
+  );
+
+  const deduped = new Map<string, MockGSCRecord>();
+  for (const record of [...trackedRecords, ...syntheticRecords]) {
+    const existing = deduped.get(record.query.toLowerCase());
+    if (!existing || record.clicks > existing.clicks) {
+      deduped.set(record.query.toLowerCase(), record);
+    }
+  }
+
+  return Array.from(deduped.values())
+    .sort((a, b) => b.clicks - a.clicks)
+    .slice(0, GSC_KEYWORDS_PER_DOMAIN);
+}
+
 export function buildSeedDatabase(): MockDatabase {
   const now = new Date().toISOString();
 
@@ -262,7 +365,7 @@ export function buildSeedDatabase(): MockDatabase {
 
     const keywordTitles = Array.from(
       new Set([...(domain.keywords.custom || []), ...generated]),
-    ).slice(0, 96);
+    ).slice(0, TRACKED_KEYWORDS_PER_DOMAIN);
 
     const domainTagIds = tags
       .filter((tag) => tag.domainId === domain.id)
@@ -345,8 +448,18 @@ export function buildSeedDatabase(): MockDatabase {
     const domainKeywords = keywords.filter(
       (keyword) => keyword.domainId === domain.id,
     );
+    const blueprint = DOMAIN_BLUEPRINTS.find((item) => item.id === domain.id);
+    if (!blueprint) {
+      gscBySiteUrl[normalizeSiteUrl(domain.url)] =
+        gscRecordsFromKeywords(domainKeywords);
+      continue;
+    }
+
     gscBySiteUrl[normalizeSiteUrl(domain.url)] =
-      gscRecordsFromKeywords(domainKeywords);
+      buildExpandedGSCRecordsForDomain({
+        domain: blueprint,
+        domainKeywords,
+      });
   }
 
   return {

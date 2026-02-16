@@ -13,6 +13,9 @@ const DomainSchema = new Schema(
   { versionKey: false },
 );
 
+DomainSchema.index({ created_at: -1, id: 1 });
+DomainSchema.index({ url: 1 });
+
 export const RankTrackerDomainModel =
   mongoose.models.RankTrackerDomain ||
   mongoose.model("RankTrackerDomain", DomainSchema);

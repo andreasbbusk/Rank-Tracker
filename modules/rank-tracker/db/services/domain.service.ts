@@ -11,6 +11,15 @@ export async function listDomains() {
 
   const domains = (await RankTrackerDomainModel.find({})
     .sort({ created_at: -1, id: 1 })
+    .select({
+      _id: 0,
+      id: 1,
+      team: 1,
+      url: 1,
+      display_name: 1,
+      created_at: 1,
+      updated_at: 1,
+    })
     .lean()) as unknown as MockDomain[];
 
   return domains.map((domain) => ({
@@ -27,7 +36,17 @@ export async function getDomainById(id: string) {
   await ensureDatabase();
   const domain = (await RankTrackerDomainModel.findOne({
     id: String(id),
-  }).lean()) as unknown as MockDomain | null;
+  })
+    .select({
+      _id: 0,
+      id: 1,
+      team: 1,
+      url: 1,
+      display_name: 1,
+      created_at: 1,
+      updated_at: 1,
+    })
+    .lean()) as unknown as MockDomain | null;
 
   if (!domain) {
     return null;
@@ -133,7 +152,17 @@ export async function updateDomain({
 
   const domain = (await RankTrackerDomainModel.findOne({
     id: String(id),
-  }).lean()) as unknown as MockDomain | null;
+  })
+    .select({
+      _id: 0,
+      id: 1,
+      team: 1,
+      url: 1,
+      display_name: 1,
+      created_at: 1,
+      updated_at: 1,
+    })
+    .lean()) as unknown as MockDomain | null;
 
   if (!domain) {
     return { error: true, message: "Domæne ikke fundet" };
@@ -177,7 +206,13 @@ export async function deleteDomain(id: string) {
 
   const domain = (await RankTrackerDomainModel.findOne({
     id: String(id),
-  }).lean()) as unknown as MockDomain | null;
+  })
+    .select({
+      _id: 0,
+      id: 1,
+      url: 1,
+    })
+    .lean()) as unknown as Pick<MockDomain, "id" | "url"> | null;
 
   if (!domain) {
     return false;

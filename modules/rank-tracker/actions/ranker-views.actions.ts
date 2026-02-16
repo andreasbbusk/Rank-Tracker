@@ -52,17 +52,9 @@ export async function createDomainKeywordsView({
     const response = await getDomainKeywordsView({
       domainId,
       dateRanges,
+      limit,
+      page,
     });
-
-    if (limit && response.records.length > limit) {
-      const start = Math.max((page - 1) * limit, 0);
-      const paginated = response.records.slice(start, start + limit);
-      return {
-        ...response,
-        count: response.records.length,
-        records: paginated,
-      };
-    }
 
     return response;
   } catch (error) {

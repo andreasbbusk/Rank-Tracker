@@ -9,7 +9,7 @@ import {
   normalizeTagName,
   slugify,
 } from "../utils/normalizers";
-import { getNextCounter } from "../core/database";
+import { reserveCounterRange } from "../core/database";
 
 export async function getTagsByIds(tagIds: number[]): Promise<MockTag[]> {
   if (!tagIds.length) {
@@ -18,7 +18,9 @@ export async function getTagsByIds(tagIds: number[]): Promise<MockTag[]> {
 
   const tags = (await RankTrackerTagModel.find({
     id: { $in: tagIds },
-  }).lean()) as unknown as MockTag[];
+  })
+    .select({ _id: 0, id: 1, domainId: 1, name: 1, name_lower: 1, created_at: 1 })
+    .lean()) as unknown as MockTag[];
 
   const byId = new Map(tags.map((tag) => [tag.id, tag]));
   return tagIds
@@ -57,6 +59,11 @@ export async function ensureDomainTagsInMongo(
     existing.map((tag) => [tag.name.toLowerCase(), tag]),
   );
   const ids: number[] = [];
+  const missing = cleaned.filter((name) => !existingMap.has(name.toLowerCase()));
+  const reservedIds = await reserveCounterRange("nextTagId", missing.length);
+  const reservedByLower = new Map(
+    missing.map((name, index) => [name.toLowerCase(), reservedIds[index]]),
+  );
 
   for (const name of cleaned) {
     const lower = name.toLowerCase();
@@ -66,29 +73,31 @@ export async function ensureDomainTagsInMongo(
       continue;
     }
 
-    const tagId = await getNextCounter("nextTagId");
-    const doc = {
-      id: tagId,
-      domainId,
-      name,
-      name_lower: lower,
-      created_at: new Date().toISOString(),
-    };
+    const tagId = reservedByLower.get(lower);
+    if (!tagId) {
+      continue;
+    }
 
-    await RankTrackerTagModel.updateOne(
+    const doc = await RankTrackerTagModel.findOneAndUpdate(
       { domainId, name_lower: lower },
-      { $setOnInsert: doc },
-      { upsert: true },
-    );
+      {
+        $setOnInsert: {
+          id: tagId,
+          domainId,
+          name,
+          name_lower: lower,
+          created_at: new Date().toISOString(),
+        },
+      },
+      { upsert: true, new: true },
+    )
+      .lean() as unknown as MockTag | null;
 
-    const created = (await RankTrackerTagModel.findOne({
-      domainId,
-      name_lower: lower,
-    }).lean()) as unknown as MockTag | null;
-
-    if (created) {
-      existingMap.set(lower, created);
-      ids.push(created.id);
+    if (doc) {
+      existingMap.set(lower, doc);
+      ids.push(doc.id);
+    } else {
+      ids.push(tagId);
     }
   }
 
@@ -100,7 +109,9 @@ export async function getDomainSiteUrl(
 ): Promise<string | null> {
   const domain = (await RankTrackerDomainModel.findOne({
     id: domainId,
-  }).lean()) as unknown as MockDomain | null;
+  })
+    .select({ _id: 0, url: 1 })
+    .lean()) as unknown as MockDomain | null;
 
   if (!domain) {
     return null;

@@ -3,32 +3,35 @@ import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
 import { MockGSCRecord } from "../types";
 import {
-  escapeRegex,
   hashString,
   normalizeDomain,
   normalizeSiteUrl,
   seededNoise,
 } from "../utils/normalizers";
 
+function buildSiteUrlCandidates(rawSiteUrl: string): string[] {
+  const normalizedSiteUrl = normalizeSiteUrl(rawSiteUrl);
+  const normalizedDomain = normalizeDomain(rawSiteUrl);
+
+  return Array.from(
+    new Set([
+      normalizedSiteUrl,
+      normalizeSiteUrl(normalizedDomain),
+      `sc-domain:${normalizedDomain}`,
+      normalizedDomain,
+      `https://${normalizedDomain}`,
+      `http://${normalizedDomain}`,
+      `https://www.${normalizedDomain}`,
+      `http://www.${normalizedDomain}`,
+    ]),
+  );
+}
+
 export async function getGSCKeywords(siteUrl: string) {
   await ensureDatabase();
 
-  const normalized = normalizeSiteUrl(siteUrl);
-  const fallbackDomain = normalizeDomain(siteUrl);
-
-  const direct = await RankTrackerGSCSiteModel.findOne({
-    siteUrl: normalized,
-  }).lean();
-
-  if (direct) {
-    return {
-      success: true,
-      records: direct.records || [],
-    };
-  }
-
   const matched = await RankTrackerGSCSiteModel.findOne({
-    siteUrl: { $regex: escapeRegex(fallbackDomain), $options: "i" },
+    siteUrl: { $in: buildSiteUrlCandidates(siteUrl) },
   }).lean();
 
   if (matched) {
@@ -44,6 +47,41 @@ export async function getGSCKeywords(siteUrl: string) {
   };
 }
 
+export async function getGSCKeywordsBySiteUrls(siteUrls: string[]) {
+  await ensureDatabase();
+
+  const normalized = Array.from(
+    new Set(siteUrls.map((siteUrl) => normalizeSiteUrl(siteUrl))),
+  );
+
+  if (!normalized.length) {
+    return new Map<string, { success: true; records: MockGSCRecord[] }>();
+  }
+
+  const docs = await RankTrackerGSCSiteModel.find({
+    siteUrl: { $in: normalized },
+  })
+    .select({ _id: 0, siteUrl: 1, records: 1 })
+    .lean();
+
+  const bySiteUrl = new Map(
+    docs.map((doc) => [
+      doc.siteUrl,
+      {
+        success: true as const,
+        records: (doc.records || []) as MockGSCRecord[],
+      },
+    ]),
+  );
+
+  return new Map(
+    normalized.map((siteUrl) => [
+      siteUrl,
+      bySiteUrl.get(siteUrl) || { success: true as const, records: [] },
+    ]),
+  );
+}
+
 export async function getKeywordInsights({
   domain,
   keywords,
@@ -52,10 +90,9 @@ export async function getKeywordInsights({
   keywords?: string[];
 }) {
   await ensureDatabase();
-  const normalized = normalizeDomain(domain);
 
   let gscEntry = await RankTrackerGSCSiteModel.findOne({
-    siteUrl: { $regex: escapeRegex(normalized), $options: "i" },
+    siteUrl: { $in: buildSiteUrlCandidates(domain) },
   }).lean();
 
   if (!gscEntry) {
