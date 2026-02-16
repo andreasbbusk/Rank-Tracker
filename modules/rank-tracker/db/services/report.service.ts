@@ -23,7 +23,9 @@ export async function getReportById(
   reportId: string,
 ): Promise<KeywordReport | null> {
   await connectToDatabase();
-  const doc = await RankTrackerReportModel.findOne({ id: reportId }).lean();
+  const doc = await RankTrackerReportModel.findOne({ id: reportId })
+    .select({ _id: 0, reportData: 1 })
+    .lean();
   return (doc?.reportData as KeywordReport) || null;
 }
 
@@ -40,6 +42,7 @@ export async function listReportsByDomainId(
   const docs = await RankTrackerReportModel.find({
     domainId: String(domainId),
   })
+    .select({ _id: 0, reportData: 1 })
     .sort({ updatedAt: -1 })
     .lean();
 

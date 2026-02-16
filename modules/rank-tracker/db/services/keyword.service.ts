@@ -1,4 +1,8 @@
-import { ensureDatabase, getNextCounter } from "../core/database";
+import {
+  ensureDatabase,
+  getNextCounter,
+  reserveCounterRange,
+} from "../core/database";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { MockKeyword, MockKeywordNote, MockTag } from "../types";
@@ -63,7 +67,6 @@ export async function createKeywords({
   await ensureDatabase();
   const domainId = String(domain);
 
-  const created: number[] = [];
   const existingKeywords = (await RankTrackerKeywordModel.find(
     { domainId },
     { title_lower: 1, id: 1 },
@@ -72,68 +75,94 @@ export async function createKeywords({
   const existingTitles = new Set(
     existingKeywords.map((keyword) => keyword.title_lower),
   );
+  const incomingTitles = new Set<string>();
+  const pendingTitles: string[] = [];
 
   for (const rawKeyword of keywords) {
     const title = rawKeyword.trim();
-    if (!title) continue;
-
-    const titleLower = title.toLowerCase();
-    if (existingTitles.has(titleLower)) {
+    if (!title) {
       continue;
     }
 
-    const keywordId = await getNextCounter("nextKeywordId");
-    const tagIds = await ensureDomainTagsInMongo(domainId, tags || []);
-
-    const keyword = buildNewKeywordRecord({
-      title,
-      domainId,
-      keywordId,
-      starKeyword: Boolean(star_keyword),
-      location,
-      tagIds,
-    });
-
-    await RankTrackerKeywordModel.create({
-      ...keyword,
-      title_lower: keyword.title.toLowerCase(),
-    });
-
-    created.push(keyword.id);
-    existingTitles.add(titleLower);
-
-    const siteUrl = await getDomainSiteUrl(domainId);
-    if (siteUrl) {
-      const clicks = Math.round(keyword.current.clicks * 0.8);
-      const impressions = Math.round(keyword.current.impressions * 0.75);
-      const ctr =
-        impressions > 0 ? Number((clicks / impressions).toFixed(4)) : 0;
-
-      await RankTrackerGSCSiteModel.updateOne(
-        { siteUrl },
-        {
-          $push: {
-            records: {
-              $each: [
-                {
-                  query: keyword.title,
-                  clicks,
-                  impressions,
-                  ctr,
-                  position: Number((keyword.current.position + 1.2).toFixed(1)),
-                },
-              ],
-              $position: 0,
-            },
-          },
-          $setOnInsert: { siteUrl },
-        },
-        { upsert: true },
-      );
+    const titleLower = title.toLowerCase();
+    if (existingTitles.has(titleLower) || incomingTitles.has(titleLower)) {
+      continue;
     }
+
+    incomingTitles.add(titleLower);
+    pendingTitles.push(title);
   }
 
-  return created;
+  if (!pendingTitles.length) {
+    return [];
+  }
+
+  const tagIds = await ensureDomainTagsInMongo(domainId, tags || []);
+  const siteUrl = await getDomainSiteUrl(domainId);
+  const keywordIds = await reserveCounterRange(
+    "nextKeywordId",
+    pendingTitles.length,
+  );
+
+  const createdKeywords = pendingTitles
+    .map((title, index) => {
+      const keywordId = keywordIds[index];
+      if (!keywordId) {
+        return null;
+      }
+
+      return buildNewKeywordRecord({
+        title,
+        domainId,
+        keywordId,
+        starKeyword: Boolean(star_keyword),
+        location,
+        tagIds,
+      });
+    })
+    .filter((keyword): keyword is MockKeyword => Boolean(keyword));
+
+  if (!createdKeywords.length) {
+    return [];
+  }
+
+  await RankTrackerKeywordModel.insertMany(
+    createdKeywords.map((keyword) => ({
+      ...keyword,
+      title_lower: keyword.title.toLowerCase(),
+    })),
+  );
+
+  if (siteUrl) {
+    await RankTrackerGSCSiteModel.updateOne(
+      { siteUrl },
+      {
+        $push: {
+          records: {
+            $each: createdKeywords.map((keyword) => {
+              const clicks = Math.round(keyword.current.clicks * 0.8);
+              const impressions = Math.round(keyword.current.impressions * 0.75);
+              const ctr =
+                impressions > 0 ? Number((clicks / impressions).toFixed(4)) : 0;
+
+              return {
+                query: keyword.title,
+                clicks,
+                impressions,
+                ctr,
+                position: Number((keyword.current.position + 1.2).toFixed(1)),
+              };
+            }),
+            $position: 0,
+          },
+        },
+        $setOnInsert: { siteUrl },
+      },
+      { upsert: true },
+    );
+  }
+
+  return createdKeywords.map((keyword) => keyword.id);
 }
 
 export async function createSingleKeyword({

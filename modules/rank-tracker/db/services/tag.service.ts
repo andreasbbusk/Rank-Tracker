@@ -7,20 +7,19 @@ import { normalizeTagName } from "../utils/normalizers";
 export async function listTags(domainId: string) {
   await ensureDatabase();
 
-  const domainKeywords = (await RankTrackerKeywordModel.find(
-    { domainId: String(domainId) },
-    { tagIds: 1 },
-  ).lean()) as Array<{ tagIds: number[] }>;
+  const keywordTagIds = (await RankTrackerKeywordModel.distinct("tagIds", {
+    domainId: String(domainId),
+  })) as number[];
 
-  const keywordTags = new Set(
-    domainKeywords.flatMap((keyword) => keyword.tagIds),
-  );
+  if (!keywordTagIds.length) {
+    return { results: [] };
+  }
 
   const results = (await RankTrackerTagModel.find({
     domainId: String(domainId),
-    id: { $in: Array.from(keywordTags) },
+    id: { $in: keywordTagIds },
   })
-    .sort({ name: 1 })
+    .sort({ name_lower: 1 })
     .lean()) as unknown as MockTag[];
 
   return {

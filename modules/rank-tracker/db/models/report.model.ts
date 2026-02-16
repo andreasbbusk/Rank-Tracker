@@ -11,6 +11,8 @@ const ReportSchema = new Schema(
   { versionKey: false },
 );
 
+ReportSchema.index({ domainId: 1, updatedAt: -1 });
+
 export const RankTrackerReportModel =
   mongoose.models.RankTrackerReport ||
   mongoose.model("RankTrackerReport", ReportSchema);

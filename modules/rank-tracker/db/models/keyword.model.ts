@@ -34,6 +34,9 @@ const KeywordSchema = new Schema(
 );
 
 KeywordSchema.index({ domainId: 1, title_lower: 1 }, { unique: true });
+KeywordSchema.index({ domainId: 1, created_at: -1, id: 1 });
+KeywordSchema.index({ domainId: 1, id: 1 });
+KeywordSchema.index({ "notes.id": 1 });
 
 export const RankTrackerKeywordModel =
   mongoose.models.RankTrackerKeyword ||

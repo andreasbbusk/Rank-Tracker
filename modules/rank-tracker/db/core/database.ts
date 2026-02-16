@@ -92,25 +92,48 @@ type CounterField =
   | "nextTagId"
   | "nextNoteId";
 
-export async function getNextCounter(field: CounterField): Promise<number> {
+function buildCounterRange(
+  start: number,
+  count: number,
+): number[] {
+  return Array.from({ length: count }, (_, index) => start + index);
+}
+
+export async function reserveCounterRange(
+  field: CounterField,
+  count: number,
+): Promise<number[]> {
   await ensureDatabase();
+
+  if (count <= 0) {
+    return [];
+  }
 
   const current = await RankTrackerMetaModel.findOneAndUpdate(
     { key: DB_NAMESPACE },
-    { $inc: { [field]: 1 } },
+    { $inc: { [field]: count } },
     { new: false, upsert: true, setDefaultsOnInsert: true },
   ).lean();
 
   const value = current?.[field];
   if (typeof value === "number") {
-    return value;
+    return buildCounterRange(value, count);
   }
 
   const fallback = await RankTrackerMetaModel.findOne({
     key: DB_NAMESPACE,
   }).lean();
   const fallbackValue = fallback?.[field];
-  return typeof fallbackValue === "number" ? fallbackValue : 1;
+  if (typeof fallbackValue === "number") {
+    return buildCounterRange(Math.max(1, fallbackValue - count), count);
+  }
+
+  return buildCounterRange(1, count);
+}
+
+export async function getNextCounter(field: CounterField): Promise<number> {
+  const [next] = await reserveCounterRange(field, 1);
+  return next ?? 1;
 }
 
 export async function resetDatabase(): Promise<void> {

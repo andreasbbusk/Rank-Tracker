@@ -53,34 +53,20 @@ export async function updateNote(noteId: string, description: string) {
   const id = Number(noteId);
   const now = new Date().toISOString();
 
-  const keyword = (await RankTrackerKeywordModel.findOne(
+  const result = await RankTrackerKeywordModel.updateOne(
     { "notes.id": id },
-    { id: 1, notes: 1 },
-  ).lean()) as { id: number; notes: MockKeywordNote[] } | null;
-
-  if (!keyword) {
-    return { error: true, message: "Note ikke fundet" };
-  }
-
-  const notes = keyword.notes.map((note) =>
-    note.id === id
-      ? {
-          ...note,
-          description,
-          updated_at: now,
-        }
-      : note,
-  );
-
-  await RankTrackerKeywordModel.updateOne(
-    { id: keyword.id },
     {
       $set: {
-        notes,
+        "notes.$.description": description,
+        "notes.$.updated_at": now,
         updated_at: now,
       },
     },
   );
+
+  if (result.matchedCount === 0) {
+    return { error: true, message: "Note ikke fundet" };
+  }
 
   return { error: false, success: true };
 }
@@ -90,26 +76,17 @@ export async function deleteNote(noteId: string) {
   const id = Number(noteId);
   const now = new Date().toISOString();
 
-  const keyword = (await RankTrackerKeywordModel.findOne(
+  const result = await RankTrackerKeywordModel.updateOne(
     { "notes.id": id },
-    { id: 1, notes: 1 },
-  ).lean()) as { id: number; notes: MockKeywordNote[] } | null;
-
-  if (!keyword) {
-    return { error: true, message: "Note ikke fundet" };
-  }
-
-  const notes = keyword.notes.filter((note) => note.id !== id);
-
-  await RankTrackerKeywordModel.updateOne(
-    { id: keyword.id },
     {
-      $set: {
-        notes,
-        updated_at: now,
-      },
+      $pull: { notes: { id } },
+      $set: { updated_at: now },
     },
   );
+
+  if (result.matchedCount === 0) {
+    return { error: true, message: "Note ikke fundet" };
+  }
 
   return { error: false, success: true };
 }
