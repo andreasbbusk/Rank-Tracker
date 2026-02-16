@@ -479,6 +479,7 @@ type PendingKeywordStore = {
     success: boolean;
     domain: string;
     keywords?: number[] | null;
+    message?: string;
   }>;
 
   // Reset the store
@@ -670,6 +671,7 @@ export const usePendingKeywordStore =
               return {
                 success: false,
                 domain: options.domain.toString(),
+                message: result?.message || "Fejl ved oprettelse af søgeord",
               };
             }
 
@@ -689,12 +691,17 @@ export const usePendingKeywordStore =
               success: true,
               domain: options.domain.toString(),
               keywords: keywordList,
+              message: result.message,
             };
           } catch (error) {
             console.error("Error adding keywords:", error);
             return {
               success: false,
               domain: options.domain.toString(),
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Fejl ved oprettelse af søgeord",
             };
           }
         },

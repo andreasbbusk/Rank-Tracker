@@ -719,8 +719,9 @@ export function DomainTable<TData extends DomainWithAnalytics>({
           <DialogHeader>
             <DialogTitle>Er du sikker?</DialogTitle>
             <DialogDescription>
-              Denne handling kan ikke fortrydes. Dette vil permanent slette
-              domænet og alle tilhørende data.
+              Dette sletter domænet og alle tilhørende søgeord i demoen.
+              Handlingen kan ikke fortrydes enkeltvis, men du kan altid
+              nulstille hele demo-datasættet fra toppen af siden.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex justify-end gap-4">

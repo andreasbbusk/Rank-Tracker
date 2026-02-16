@@ -1,12 +1,14 @@
 import { ensureDatabase } from "../core/database";
+import { getCurrentTenantId } from "../core/tenant";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { MockKeywordNote } from "../types";
 
 export async function listNotes(domainId: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const keywords = (await RankTrackerKeywordModel.find(
-    { domainId: String(domainId) },
+    { tenantId, domainId: String(domainId) },
     { id: 1, title: 1, notes: 1 },
   ).lean()) as Array<{ id: number; title: string; notes: MockKeywordNote[] }>;
 
@@ -20,11 +22,12 @@ export async function listNotes(domainId: string) {
 }
 
 export async function getNote(noteId: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const id = Number(noteId);
 
   const keyword = (await RankTrackerKeywordModel.findOne(
-    { "notes.id": id },
+    { tenantId, "notes.id": id },
     { id: 1, title: 1, notes: 1 },
   ).lean()) as {
     id: number;
@@ -49,12 +52,13 @@ export async function getNote(noteId: string) {
 }
 
 export async function updateNote(noteId: string, description: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const id = Number(noteId);
   const now = new Date().toISOString();
 
   const result = await RankTrackerKeywordModel.updateOne(
-    { "notes.id": id },
+    { tenantId, "notes.id": id },
     {
       $set: {
         "notes.$.description": description,
@@ -72,12 +76,13 @@ export async function updateNote(noteId: string, description: string) {
 }
 
 export async function deleteNote(noteId: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const id = Number(noteId);
   const now = new Date().toISOString();
 
   const result = await RankTrackerKeywordModel.updateOne(
-    { "notes.id": id },
+    { tenantId, "notes.id": id },
     {
       $pull: { notes: { id } },
       $set: { updated_at: now },

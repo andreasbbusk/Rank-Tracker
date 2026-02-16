@@ -1,13 +1,16 @@
 import { ensureDatabase } from "../core/database";
+import { getCurrentTenantId } from "../core/tenant";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { RankTrackerTagModel } from "../models/tag.model";
 import { MockTag } from "../types";
 import { normalizeTagName } from "../utils/normalizers";
 
 export async function listTags(domainId: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const keywordTagIds = (await RankTrackerKeywordModel.distinct("tagIds", {
+    tenantId,
     domainId: String(domainId),
   })) as number[];
 
@@ -16,6 +19,7 @@ export async function listTags(domainId: string) {
   }
 
   const results = (await RankTrackerTagModel.find({
+    tenantId,
     domainId: String(domainId),
     id: { $in: keywordTagIds },
   })
@@ -28,7 +32,8 @@ export async function listTags(domainId: string) {
 }
 
 export async function updateTag(tagId: string, name: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const normalizedName = normalizeTagName(name);
   if (!normalizedName) {
     return false;
@@ -36,6 +41,7 @@ export async function updateTag(tagId: string, name: string) {
 
   const id = Number(tagId);
   const tag = (await RankTrackerTagModel.findOne({
+    tenantId,
     id,
   }).lean()) as unknown as MockTag | null;
 
@@ -44,6 +50,7 @@ export async function updateTag(tagId: string, name: string) {
   }
 
   const duplicate = await RankTrackerTagModel.exists({
+    tenantId,
     id: { $ne: id },
     domainId: tag.domainId,
     name_lower: normalizedName.toLowerCase(),
@@ -54,7 +61,7 @@ export async function updateTag(tagId: string, name: string) {
   }
 
   await RankTrackerTagModel.updateOne(
-    { id },
+    { tenantId, id },
     {
       $set: {
         name: normalizedName,
@@ -66,17 +73,18 @@ export async function updateTag(tagId: string, name: string) {
 }
 
 export async function deleteTag(tagId: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const id = Number(tagId);
 
-  const tag = await RankTrackerTagModel.exists({ id });
+  const tag = await RankTrackerTagModel.exists({ tenantId, id });
   if (!tag) return false;
 
   const now = new Date().toISOString();
   await Promise.all([
-    RankTrackerTagModel.deleteOne({ id }),
+    RankTrackerTagModel.deleteOne({ tenantId, id }),
     RankTrackerKeywordModel.updateMany(
-      { tagIds: id },
+      { tenantId, tagIds: id },
       {
         $pull: { tagIds: id },
         $set: { updated_at: now },

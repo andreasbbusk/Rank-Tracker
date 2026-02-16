@@ -44,7 +44,7 @@ export async function createKeyword({
     return { ...result, cacheKey: "keywordCreate" };
   } catch (error) {
     console.error(error);
-    return { error: true };
+    return { error: true, message: "Kunne ikke oprette søgeord." };
   }
 }
 
