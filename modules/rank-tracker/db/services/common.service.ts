@@ -1,6 +1,7 @@
 import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { RankTrackerTagModel } from "../models/tag.model";
+import { getCurrentTenantId } from "../core/tenant";
 import { MockDomain, MockKeyword, MockLocation, MockTag } from "../types";
 import { buildRange } from "../utils/analytics";
 import {
@@ -11,12 +12,17 @@ import {
 } from "../utils/normalizers";
 import { reserveCounterRange } from "../core/database";
 
-export async function getTagsByIds(tagIds: number[]): Promise<MockTag[]> {
+export async function getTagsByIds(
+  tagIds: number[],
+  tenantId?: string,
+): Promise<MockTag[]> {
   if (!tagIds.length) {
     return [];
   }
 
+  const activeTenantId = tenantId || (await getCurrentTenantId());
   const tags = (await RankTrackerTagModel.find({
+    tenantId: activeTenantId,
     id: { $in: tagIds },
   })
     .select({ _id: 0, id: 1, domainId: 1, name: 1, name_lower: 1, created_at: 1 })
@@ -31,7 +37,9 @@ export async function getTagsByIds(tagIds: number[]): Promise<MockTag[]> {
 export async function ensureDomainTagsInMongo(
   domainId: string,
   names: string[],
+  tenantId?: string,
 ): Promise<number[]> {
+  const activeTenantId = tenantId || (await getCurrentTenantId());
   const cleaned: string[] = [];
   const seen = new Set<string>();
 
@@ -51,6 +59,7 @@ export async function ensureDomainTagsInMongo(
 
   const lowered = cleaned.map((name) => name.toLowerCase());
   const existing = (await RankTrackerTagModel.find({
+    tenantId: activeTenantId,
     domainId,
     name_lower: { $in: lowered },
   }).lean()) as unknown as MockTag[];
@@ -60,7 +69,11 @@ export async function ensureDomainTagsInMongo(
   );
   const ids: number[] = [];
   const missing = cleaned.filter((name) => !existingMap.has(name.toLowerCase()));
-  const reservedIds = await reserveCounterRange("nextTagId", missing.length);
+  const reservedIds = await reserveCounterRange(
+    "nextTagId",
+    missing.length,
+    activeTenantId,
+  );
   const reservedByLower = new Map(
     missing.map((name, index) => [name.toLowerCase(), reservedIds[index]]),
   );
@@ -79,9 +92,10 @@ export async function ensureDomainTagsInMongo(
     }
 
     const doc = await RankTrackerTagModel.findOneAndUpdate(
-      { domainId, name_lower: lower },
+      { tenantId: activeTenantId, domainId, name_lower: lower },
       {
         $setOnInsert: {
+          tenantId: activeTenantId,
           id: tagId,
           domainId,
           name,
@@ -106,8 +120,11 @@ export async function ensureDomainTagsInMongo(
 
 export async function getDomainSiteUrl(
   domainId: string,
+  tenantId?: string,
 ): Promise<string | null> {
+  const activeTenantId = tenantId || (await getCurrentTenantId());
   const domain = (await RankTrackerDomainModel.findOne({
+    tenantId: activeTenantId,
     id: domainId,
   })
     .select({ _id: 0, url: 1 })
@@ -189,7 +206,9 @@ export function buildNewKeywordRecord({
 }
 
 export async function getKeywordsForDomain(domainId: string) {
+  const tenantId = await getCurrentTenantId();
   return (await RankTrackerKeywordModel.find({
+    tenantId,
     domainId: String(domainId),
   }).lean()) as unknown as MockKeyword[];
 }

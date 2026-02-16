@@ -3,11 +3,14 @@ import { GSCRecordSchema } from "./core/schemas";
 
 const GSCSiteSchema = new Schema(
   {
-    siteUrl: { type: String, required: true, unique: true, index: true },
+    tenantId: { type: String, required: true, index: true },
+    siteUrl: { type: String, required: true, index: true },
     records: { type: [GSCRecordSchema], default: [] },
   },
   { versionKey: false },
 );
+
+GSCSiteSchema.index({ tenantId: 1, siteUrl: 1 }, { unique: true });
 
 export const RankTrackerGSCSiteModel =
   mongoose.models.RankTrackerGSCSite ||

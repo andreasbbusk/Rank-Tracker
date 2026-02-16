@@ -1,4 +1,5 @@
 import { ensureDatabase, getNextCounter } from "../core/database";
+import { getCurrentTenantId } from "../core/tenant";
 import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
@@ -7,9 +8,10 @@ import { MockDomain } from "../types";
 import { normalizeDomain, normalizeSiteUrl } from "../utils/normalizers";
 
 export async function listDomains() {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
-  const domains = (await RankTrackerDomainModel.find({})
+  const domains = (await RankTrackerDomainModel.find({ tenantId })
     .sort({ created_at: -1, id: 1 })
     .select({
       _id: 0,
@@ -32,9 +34,17 @@ export async function listDomains() {
   }));
 }
 
+export async function countDomains() {
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
+  return RankTrackerDomainModel.countDocuments({ tenantId });
+}
+
 export async function getDomainById(id: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const domain = (await RankTrackerDomainModel.findOne({
+    tenantId,
     id: String(id),
   })
     .select({
@@ -69,12 +79,14 @@ export async function createDomain({
   url: string;
   display_name: string;
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const normalizedUrl = normalizeDomain(url);
   const normalizedDisplayName = display_name.trim().toLowerCase();
 
   const duplicateDisplayName = await RankTrackerDomainModel.exists({
+    tenantId,
     display_name_lower: normalizedDisplayName,
   });
 
@@ -86,7 +98,7 @@ export async function createDomain({
   }
 
   const now = new Date().toISOString();
-  const id = String(await getNextCounter("nextDomainId"));
+  const id = String(await getNextCounter("nextDomainId", tenantId));
 
   const domain: MockDomain = {
     id,
@@ -98,15 +110,17 @@ export async function createDomain({
   };
 
   await RankTrackerDomainModel.create({
+    tenantId,
     ...domain,
     display_name_lower: domain.display_name.toLowerCase(),
   });
 
   const siteUrl = normalizeSiteUrl(domain.url);
   await RankTrackerGSCSiteModel.updateOne(
-    { siteUrl },
+    { tenantId, siteUrl },
     {
       $setOnInsert: {
+        tenantId,
         siteUrl,
         records: [
           {
@@ -148,9 +162,11 @@ export async function updateDomain({
   url: string;
   display_name: string;
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const domain = (await RankTrackerDomainModel.findOne({
+    tenantId,
     id: String(id),
   })
     .select({
@@ -170,6 +186,7 @@ export async function updateDomain({
 
   const normalizedDisplayName = display_name.trim().toLowerCase();
   const duplicateDisplayName = await RankTrackerDomainModel.exists({
+    tenantId,
     id: { $ne: String(id) },
     display_name_lower: normalizedDisplayName,
   });
@@ -187,7 +204,7 @@ export async function updateDomain({
   };
 
   await RankTrackerDomainModel.updateOne(
-    { id: String(id) },
+    { tenantId, id: String(id) },
     {
       $set: {
         url: nextDomain.url,
@@ -202,9 +219,11 @@ export async function updateDomain({
 }
 
 export async function deleteDomain(id: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const domain = (await RankTrackerDomainModel.findOne({
+    tenantId,
     id: String(id),
   })
     .select({
@@ -219,18 +238,20 @@ export async function deleteDomain(id: string) {
   }
 
   await Promise.all([
-    RankTrackerDomainModel.deleteOne({ id: String(id) }),
-    RankTrackerKeywordModel.deleteMany({ domainId: String(id) }),
-    RankTrackerTagModel.deleteMany({ domainId: String(id) }),
+    RankTrackerDomainModel.deleteOne({ tenantId, id: String(id) }),
+    RankTrackerKeywordModel.deleteMany({ tenantId, domainId: String(id) }),
+    RankTrackerTagModel.deleteMany({ tenantId, domainId: String(id) }),
   ]);
 
   const hasSiblingWithSameUrl = await RankTrackerDomainModel.exists({
+    tenantId,
     id: { $ne: String(id) },
     url: normalizeDomain(domain.url),
   });
 
   if (!hasSiblingWithSameUrl) {
     await RankTrackerGSCSiteModel.deleteOne({
+      tenantId,
       siteUrl: normalizeSiteUrl(domain.url),
     });
   }

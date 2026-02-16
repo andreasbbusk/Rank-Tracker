@@ -7,10 +7,11 @@ import {
 
 const KeywordSchema = new Schema(
   {
-    id: { type: Number, required: true, unique: true, index: true },
-    domainId: { type: String, required: true, index: true },
+    tenantId: { type: String, required: true, index: true },
+    id: { type: Number, required: true, index: true },
+    domainId: { type: String, required: true },
     title: { type: String, required: true },
-    title_lower: { type: String, required: true, index: true },
+    title_lower: { type: String, required: true },
     star_keyword: { type: Boolean, required: true, default: false },
     location: { type: LocationSchema, required: true },
     tagIds: { type: [Number], default: [] },
@@ -33,10 +34,11 @@ const KeywordSchema = new Schema(
   { versionKey: false },
 );
 
-KeywordSchema.index({ domainId: 1, title_lower: 1 }, { unique: true });
-KeywordSchema.index({ domainId: 1, created_at: -1, id: 1 });
-KeywordSchema.index({ domainId: 1, id: 1 });
-KeywordSchema.index({ "notes.id": 1 });
+KeywordSchema.index({ tenantId: 1, id: 1 }, { unique: true });
+KeywordSchema.index({ tenantId: 1, domainId: 1, title_lower: 1 }, { unique: true });
+KeywordSchema.index({ tenantId: 1, domainId: 1, created_at: -1, id: 1 });
+KeywordSchema.index({ tenantId: 1, domainId: 1, id: 1 });
+KeywordSchema.index({ tenantId: 1, "notes.id": 1 });
 
 export const RankTrackerKeywordModel =
   mongoose.models.RankTrackerKeyword ||

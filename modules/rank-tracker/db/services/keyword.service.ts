@@ -3,6 +3,7 @@ import {
   getNextCounter,
   reserveCounterRange,
 } from "../core/database";
+import { getCurrentTenantId } from "../core/tenant";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { MockKeyword, MockKeywordNote, MockTag } from "../types";
@@ -16,8 +17,11 @@ import {
 import { DEFAULT_LOCATION } from "../utils/normalizers";
 
 export async function listKeywords(domainId?: string) {
-  await ensureDatabase();
-  const filter = domainId ? { domainId: String(domainId) } : {};
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
+  const filter = domainId
+    ? { tenantId, domainId: String(domainId) }
+    : { tenantId };
 
   const keywords = (await RankTrackerKeywordModel.find(filter)
     .sort({ created_at: -1, id: 1 })
@@ -26,7 +30,7 @@ export async function listKeywords(domainId?: string) {
   const tagIds = Array.from(
     new Set(keywords.flatMap((keyword) => keyword.tagIds)),
   );
-  const tags = await getTagsByIds(tagIds);
+  const tags = await getTagsByIds(tagIds, tenantId);
   const tagsById = new Map(tags.map((tag) => [tag.id, tag]));
 
   return keywords.map((keyword) =>
@@ -39,15 +43,26 @@ export async function listKeywords(domainId?: string) {
   );
 }
 
+export async function countKeywords(domainId?: string) {
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
+  const filter = domainId
+    ? { tenantId, domainId: String(domainId) }
+    : { tenantId };
+  return RankTrackerKeywordModel.countDocuments(filter);
+}
+
 export async function getKeywordById(id: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const keyword = (await RankTrackerKeywordModel.findOne({
+    tenantId,
     id: Number(id),
   }).lean()) as unknown as MockKeyword | null;
 
   if (!keyword) return null;
 
-  const tags = await getTagsByIds(keyword.tagIds || []);
+  const tags = await getTagsByIds(keyword.tagIds || [], tenantId);
   return keywordToApi(keyword, tags);
 }
 
@@ -64,11 +79,12 @@ export async function createKeywords({
   star_keyword?: boolean;
   tags?: string[];
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const domainId = String(domain);
 
   const existingKeywords = (await RankTrackerKeywordModel.find(
-    { domainId },
+    { tenantId, domainId },
     { title_lower: 1, id: 1 },
   ).lean()) as Array<{ title_lower: string; id: number }>;
 
@@ -97,11 +113,12 @@ export async function createKeywords({
     return [];
   }
 
-  const tagIds = await ensureDomainTagsInMongo(domainId, tags || []);
-  const siteUrl = await getDomainSiteUrl(domainId);
+  const tagIds = await ensureDomainTagsInMongo(domainId, tags || [], tenantId);
+  const siteUrl = await getDomainSiteUrl(domainId, tenantId);
   const keywordIds = await reserveCounterRange(
     "nextKeywordId",
     pendingTitles.length,
+    tenantId,
   );
 
   const createdKeywords = pendingTitles
@@ -128,6 +145,7 @@ export async function createKeywords({
 
   await RankTrackerKeywordModel.insertMany(
     createdKeywords.map((keyword) => ({
+      tenantId,
       ...keyword,
       title_lower: keyword.title.toLowerCase(),
     })),
@@ -135,7 +153,7 @@ export async function createKeywords({
 
   if (siteUrl) {
     await RankTrackerGSCSiteModel.updateOne(
-      { siteUrl },
+      { tenantId, siteUrl },
       {
         $push: {
           records: {
@@ -156,7 +174,7 @@ export async function createKeywords({
             $position: 0,
           },
         },
-        $setOnInsert: { siteUrl },
+        $setOnInsert: { tenantId, siteUrl },
       },
       { upsert: true },
     );
@@ -220,8 +238,10 @@ export async function updateKeyword({
   notes?: Array<{ id: number; description: string }>;
   preferred_url?: string;
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const keyword = (await RankTrackerKeywordModel.findOne({
+    tenantId,
     id: Number(id),
   }).lean()) as unknown as MockKeyword | null;
 
@@ -263,6 +283,7 @@ export async function updateKeyword({
     nextKeyword.tagIds = await ensureDomainTagsInMongo(
       nextKeyword.domainId,
       tagNames,
+      tenantId,
     );
   }
 
@@ -281,7 +302,7 @@ export async function updateKeyword({
         continue;
       }
 
-      const newId = note.id || (await getNextCounter("nextNoteId"));
+      const newId = note.id || (await getNextCounter("nextNoteId", tenantId));
       nextNotes.push({
         id: newId,
         description: note.description,
@@ -300,6 +321,7 @@ export async function updateKeyword({
     nextKeyword.title.toLowerCase() !== keyword.title.toLowerCase()
   ) {
     const duplicate = await RankTrackerKeywordModel.exists({
+      tenantId,
       domainId: nextKeyword.domainId,
       title_lower: nextKeyword.title.toLowerCase(),
       id: { $ne: nextKeyword.id },
@@ -311,7 +333,7 @@ export async function updateKeyword({
   }
 
   await RankTrackerKeywordModel.updateOne(
-    { id: Number(id) },
+    { tenantId, id: Number(id) },
     {
       $set: {
         ...nextKeyword,
@@ -320,13 +342,17 @@ export async function updateKeyword({
     },
   );
 
-  const keywordTags = await getTagsByIds(nextKeyword.tagIds);
+  const keywordTags = await getTagsByIds(nextKeyword.tagIds, tenantId);
   return keywordToApi(nextKeyword, keywordTags);
 }
 
 export async function deleteKeyword(id: string) {
-  await ensureDatabase();
-  const result = await RankTrackerKeywordModel.deleteOne({ id: Number(id) });
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
+  const result = await RankTrackerKeywordModel.deleteOne({
+    tenantId,
+    id: Number(id),
+  });
   return result.deletedCount > 0;
 }
 
@@ -339,8 +365,10 @@ export async function updateKeywordLocation(
     geo_const: string;
   },
 ) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const keyword = (await RankTrackerKeywordModel.findOne({
+    tenantId,
     id: Number(id),
   }).lean()) as unknown as MockKeyword | null;
 
@@ -355,7 +383,7 @@ export async function updateKeywordLocation(
   };
 
   await RankTrackerKeywordModel.updateOne(
-    { id: Number(id) },
+    { tenantId, id: Number(id) },
     {
       $set: {
         location: nextLocation,
@@ -368,15 +396,17 @@ export async function updateKeywordLocation(
 }
 
 export async function deleteKeywordLocation(id: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const keyword = (await RankTrackerKeywordModel.findOne({
+    tenantId,
     $or: [{ "location.id": Number(id) }, { id: Number(id) }],
   }).lean()) as unknown as MockKeyword | null;
 
   if (!keyword) return false;
 
   await RankTrackerKeywordModel.updateOne(
-    { id: keyword.id },
+    { tenantId, id: keyword.id },
     {
       $set: {
         location: {
@@ -391,9 +421,11 @@ export async function deleteKeywordLocation(id: string) {
 }
 
 export async function getKeywordStatus(keywordList: number[]) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const keywords = (await RankTrackerKeywordModel.find({
+    tenantId,
     id: { $in: keywordList },
   }).lean()) as unknown as MockKeyword[];
 
@@ -443,7 +475,7 @@ export async function getKeywordStatus(keywordList: number[]) {
     await RankTrackerKeywordModel.bulkWrite(
       updates.map((update) => ({
         updateOne: {
-          filter: { id: update.id },
+          filter: { tenantId, id: update.id },
           update: {
             $set: {
               status: update.status,
@@ -466,10 +498,11 @@ export async function getKeywordStatus(keywordList: number[]) {
 }
 
 export async function getDomainKeywordTitles(domainId: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const keywords = await RankTrackerKeywordModel.find(
-    { domainId: String(domainId) },
+    { tenantId, domainId: String(domainId) },
     { title: 1 },
   )
     .sort({ id: 1 })

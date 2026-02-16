@@ -34,6 +34,12 @@ The codebase is organized by feature boundaries rather than page-only structure:
 
 The data layer uses MongoDB + Mongoose with deterministic seeded data, so core product flows are always reproducible for evaluation and iteration.
 
+## Sandbox Isolation
+
+Each visitor gets an isolated Mongo-backed sandbox keyed by a session cookie (`rt_demo_session`).
+Seeded data is created per session and CRUD changes persist inside that session only.
+Security headers are enabled globally in `next.config.mjs` (CSP, frame denial, referrer policy, etc.).
+
 ## Background
 
 Rank Tracker originally lived as a larger feature area inside **Conversio Hub**. This repository captures that feature set as a standalone product surface.

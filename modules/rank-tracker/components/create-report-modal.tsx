@@ -128,7 +128,12 @@ export const CreateReportModal = ({
       router.push(`/report/${report.id}`);
     } catch (error) {
       console.error("Failed to create report:", error);
-      toast.error("Der opstod en fejl ved oprettelse af rapporten");
+      toast.error("Der opstod en fejl ved oprettelse af rapporten", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Prøv igen om et øjeblik.",
+      });
     } finally {
       setIsSubmitting(false);
       setLoading(false);

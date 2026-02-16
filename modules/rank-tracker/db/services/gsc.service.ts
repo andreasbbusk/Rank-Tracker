@@ -1,4 +1,5 @@
 import { ensureDatabase } from "../core/database";
+import { getCurrentTenantId } from "../core/tenant";
 import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
 import { MockGSCRecord } from "../types";
@@ -28,9 +29,11 @@ function buildSiteUrlCandidates(rawSiteUrl: string): string[] {
 }
 
 export async function getGSCKeywords(siteUrl: string) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const matched = await RankTrackerGSCSiteModel.findOne({
+    tenantId,
     siteUrl: { $in: buildSiteUrlCandidates(siteUrl) },
   }).lean();
 
@@ -48,7 +51,8 @@ export async function getGSCKeywords(siteUrl: string) {
 }
 
 export async function getGSCKeywordsBySiteUrls(siteUrls: string[]) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const normalized = Array.from(
     new Set(siteUrls.map((siteUrl) => normalizeSiteUrl(siteUrl))),
@@ -59,6 +63,7 @@ export async function getGSCKeywordsBySiteUrls(siteUrls: string[]) {
   }
 
   const docs = await RankTrackerGSCSiteModel.find({
+    tenantId,
     siteUrl: { $in: normalized },
   })
     .select({ _id: 0, siteUrl: 1, records: 1 })
@@ -89,14 +94,16 @@ export async function getKeywordInsights({
   domain: string;
   keywords?: string[];
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   let gscEntry = await RankTrackerGSCSiteModel.findOne({
+    tenantId,
     siteUrl: { $in: buildSiteUrlCandidates(domain) },
   }).lean();
 
   if (!gscEntry) {
-    gscEntry = await RankTrackerGSCSiteModel.findOne({}).lean();
+    gscEntry = await RankTrackerGSCSiteModel.findOne({ tenantId }).lean();
   }
 
   const source = (gscEntry?.records || []) as MockGSCRecord[];
@@ -166,7 +173,8 @@ export async function getKeywordInsights({
 }
 
 export async function getGSCProperties() {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
 
   const suggestedProperties = [
     "sc-domain:coffeecircle.dk",
@@ -175,7 +183,7 @@ export async function getGSCProperties() {
   ];
 
   const domains = (await RankTrackerDomainModel.find(
-    {},
+    { tenantId },
     { url: 1 },
   ).lean()) as Array<{ url: string }>;
   const existingProperties = domains.map((domain) =>

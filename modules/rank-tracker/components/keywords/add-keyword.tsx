@@ -312,7 +312,9 @@ export const AddKeywordDialog = ({
         });
 
         if (!result?.success) {
-          throw new Error("Fejl ved oprettelse af søgeord");
+          throw new Error(
+            result?.message || "Der opstod en fejl ved oprettelse af søgeord",
+          );
         }
 
         toast.success(
@@ -351,7 +353,10 @@ export const AddKeywordDialog = ({
       } catch (error) {
         console.error("Error during keyword creation or processing:", error);
         toast.error("Fejl ved oprettelse af søgeord", {
-          description: "Der opstod en fejl under oprettelse. Prøv igen senere.",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Der opstod en fejl under oprettelse. Prøv igen senere.",
         });
       }
     } catch (error) {

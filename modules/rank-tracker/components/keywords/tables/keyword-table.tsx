@@ -1787,8 +1787,8 @@ const KeywordTableContent = memo(function KeywordTableContentComponent<
           <DialogHeader>
             <DialogTitle>Er du sikker?</DialogTitle>
             <DialogDescription>
-              Denne handling kan ikke fortrydes. Dette vil permanent slette
-              søgeordet og alle tilhørende data.
+              Dette sletter søgeordet fra demoen. Hvis du vil tilbage til
+              start, kan du nulstille hele demo-datasættet fra toppen af siden.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex justify-end gap-4">

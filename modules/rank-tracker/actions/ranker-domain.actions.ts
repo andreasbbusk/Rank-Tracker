@@ -26,7 +26,7 @@ export async function createDomain({
     return result;
   } catch (error) {
     console.error(error);
-    return { error: true };
+    return { error: true, message: "Kunne ikke oprette domænet." };
   }
 }
 
@@ -49,7 +49,7 @@ export async function updateDomain({
     return result;
   } catch (error) {
     console.error(error);
-    return { error: true };
+    return { error: true, message: "Kunne ikke opdatere domænet." };
   }
 }
 
@@ -67,7 +67,7 @@ export async function deleteDomain(id: string) {
     const success = await deleteDomainRecord(id);
 
     if (!success) {
-      return { error: true };
+      return { error: true, message: "Domænet blev ikke fundet." };
     }
 
     revalidateTag("rank-tracker-domains");
@@ -77,7 +77,7 @@ export async function deleteDomain(id: string) {
     return { success: true };
   } catch (error) {
     console.error(error);
-    return { error: true };
+    return { error: true, message: "Kunne ikke slette domænet." };
   }
 }
 

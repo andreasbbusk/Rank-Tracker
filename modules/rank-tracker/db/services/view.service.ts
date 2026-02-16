@@ -1,4 +1,5 @@
 import { ensureDatabase } from "../core/database";
+import { getCurrentTenantId } from "../core/tenant";
 import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { DateRange, MockDomain, MockKeyword, MockTag } from "../types";
@@ -47,11 +48,12 @@ function buildRangeStats(
 }
 
 export async function getDomainsView(dateRanges?: DateRange[]) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const includeComparison = Boolean(dateRanges && dateRanges.length > 1);
 
   const [domains, aggregatedKeywords] = await Promise.all([
-    RankTrackerDomainModel.find({})
+    RankTrackerDomainModel.find({ tenantId })
       .select({
         _id: 0,
         id: 1,
@@ -61,6 +63,11 @@ export async function getDomainsView(dateRanges?: DateRange[]) {
       })
       .lean(),
     RankTrackerKeywordModel.aggregate<DomainAggregationRow>([
+      {
+        $match: {
+          tenantId,
+        },
+      },
       {
         $group: {
           _id: "$domainId",
@@ -230,7 +237,8 @@ export async function getDomainKeywordsView({
   limit?: number;
   page?: number;
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const includeComparison = Boolean(dateRanges && dateRanges.length > 1);
   const safeLimit = Math.max(limit, 1);
   const safePage = Math.max(page, 1);
@@ -238,9 +246,11 @@ export async function getDomainKeywordsView({
 
   const [totalKeywords, domainKeywords] = await Promise.all([
     RankTrackerKeywordModel.countDocuments({
+      tenantId,
       domainId: String(domainId),
     }),
     RankTrackerKeywordModel.find({
+      tenantId,
       domainId: String(domainId),
     })
       .sort({ created_at: -1, id: 1 })
@@ -256,7 +266,7 @@ export async function getDomainKeywordsView({
       ),
     ),
   );
-  const tags = await getTagsByIds(tagIds);
+  const tags = await getTagsByIds(tagIds, tenantId);
   const tagsById = new Map(tags.map((tag) => [tag.id, tag]));
 
   const records: any[] = [];
@@ -286,10 +296,12 @@ export async function getDashboardView({
   domainId: string;
   dateRanges?: DateRange[];
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const includeComparison = Boolean(dateRanges && dateRanges.length > 1);
 
   const keywords = (await RankTrackerKeywordModel.find({
+    tenantId,
     domainId: String(domainId),
   })
     .select({
@@ -334,8 +346,10 @@ export async function getKeywordModalView({
 }: {
   keywordId: string;
 }) {
-  await ensureDatabase();
+  const tenantId = await getCurrentTenantId();
+  await ensureDatabase(tenantId);
   const keyword = (await RankTrackerKeywordModel.findOne({
+    tenantId,
     id: Number(keywordId),
   })
     .select({
