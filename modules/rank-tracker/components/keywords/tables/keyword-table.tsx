@@ -39,6 +39,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactElement,
 } from "react";
 import { toast } from "sonner";
 import { Button } from "@/modules/core/components/ui/button";
@@ -1990,6 +1991,8 @@ const KeywordTableContent = memo(function KeywordTableContentComponent<
       )}
     </div>
   );
-}) as <TData extends Keyword>(props: DataTableProps<TData, any>) => JSX.Element;
+}) as <TData extends Keyword>(
+  props: DataTableProps<TData, any>,
+) => ReactElement;
 
 export default KeywordTable;

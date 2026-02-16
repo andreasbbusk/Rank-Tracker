@@ -2,7 +2,7 @@
 
 import { cn } from "@/modules/core/lib/utils";
 import { ArrowRightLeft, CalendarIcon, Check, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState, type FC } from "react";
+import { useEffect, useRef, useState, type FC, type ReactElement } from "react";
 import { Button } from "./button";
 import { Calendar } from "./calendar";
 import { DateInput } from "./date-input";
@@ -97,7 +97,7 @@ export const DateRangePicker: FC<DateRangePickerProps> & {
   onUpdate,
   align = "end",
   locale = "en-US",
-}): JSX.Element => {
+}): ReactElement => {
   const [isOpen, setIsOpen] = useState(false);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [update, setUpdate] = useState(new Date());
@@ -344,7 +344,7 @@ export const DateRangePicker: FC<DateRangePickerProps> & {
     preset: string;
     label: string;
     isSelected: boolean;
-  }): JSX.Element => (
+  }): ReactElement => (
     <Button
       className={cn(
         isSelected && "pointer-events-none",

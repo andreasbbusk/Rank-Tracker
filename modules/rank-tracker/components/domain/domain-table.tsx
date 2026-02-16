@@ -19,7 +19,7 @@ import {
   Search,
   Loader2,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/modules/core/components/ui/button";
@@ -134,7 +134,7 @@ export function DomainTable<TData extends DomainWithAnalytics>({
   hasPagination = true,
   disableBorder = false,
   gscData,
-}: DataTableProps<TData, any>): JSX.Element {
+}: DataTableProps<TData, any>): ReactElement {
   const [sorting, setSorting] = useState<SortingState>([
     {
       id: "display_name",

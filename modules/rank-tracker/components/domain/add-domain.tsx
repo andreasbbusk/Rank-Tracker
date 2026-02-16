@@ -11,6 +11,7 @@ import {
   CommandGroup,
   CommandInput,
   CommandItem,
+  CommandList,
 } from "@/modules/core/components/ui/command";
 import {
   Dialog,
@@ -352,43 +353,50 @@ export function AddDomainDialog({
                                     placeholder="Søg efter domæne..."
                                     className="h-9"
                                   />
-                                  <CommandEmpty>
-                                    Ingen GSC domæner fundet
-                                  </CommandEmpty>
-                                  <CommandGroup>
-                                    {isLoading ? (
-                                      <div className="flex items-center justify-center py-4">
-                                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                                      </div>
-                                    ) : error ? (
-                                      <div className="p-4 text-center text-sm text-muted-foreground">
-                                        Der opstod en fejl ved hentning af
-                                        domæner
-                                      </div>
-                                    ) : !properties?.accounts?.length ? (
-                                      <div className="p-4 text-center text-sm text-muted-foreground">
-                                        Ingen GSC domæner fundet
-                                      </div>
-                                    ) : (
-                                      properties.accounts.map((account) => (
-                                        <CommandItem
-                                          key={account.property}
-                                          value={account.property}
-                                          onSelect={handleGSCDomainSelect}
-                                        >
-                                          {account.property}
-                                          <Check
-                                            className={cn(
-                                              "ml-auto h-4 w-4",
-                                              field.value === account.property
-                                                ? "opacity-100"
-                                                : "opacity-0",
-                                            )}
-                                          />
-                                        </CommandItem>
-                                      ))
-                                    )}
-                                  </CommandGroup>
+                                  <CommandList>
+                                    <CommandEmpty>
+                                      Ingen GSC domæner fundet
+                                    </CommandEmpty>
+                                    <CommandGroup>
+                                      {isLoading ? (
+                                        <div className="flex items-center justify-center py-4">
+                                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                        </div>
+                                      ) : error ? (
+                                        <div className="p-4 text-center text-sm text-muted-foreground">
+                                          Der opstod en fejl ved hentning af
+                                          domæner
+                                        </div>
+                                      ) : !properties?.accounts?.length ? (
+                                        <div className="p-4 text-center text-sm text-muted-foreground">
+                                          Ingen GSC domæner fundet
+                                        </div>
+                                      ) : (
+                                        properties.accounts.map((account) => (
+                                          <CommandItem
+                                            key={account.property}
+                                            value={account.property || ""}
+                                            keywords={[account.property || ""]}
+                                            onSelect={(value) =>
+                                              handleGSCDomainSelect(
+                                                value || account.property,
+                                              )
+                                            }
+                                          >
+                                            {account.property}
+                                            <Check
+                                              className={cn(
+                                                "ml-auto h-4 w-4",
+                                                field.value === account.property
+                                                  ? "opacity-100"
+                                                  : "opacity-0",
+                                              )}
+                                            />
+                                          </CommandItem>
+                                        ))
+                                      )}
+                                    </CommandGroup>
+                                  </CommandList>
                                 </Command>
                               </PopoverContent>
                             </Popover>

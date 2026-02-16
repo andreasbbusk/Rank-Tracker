@@ -10,6 +10,7 @@ import {
   CommandGroup,
   CommandInput,
   CommandItem,
+  CommandList,
 } from "@/modules/core/components/ui/command";
 import {
   Popover,
@@ -17,7 +18,7 @@ import {
   PopoverTrigger,
 } from "@/modules/core/components/ui/popover";
 import { cn } from "@/modules/core/lib/utils";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Domain } from "../types/index";
 
 interface RankTrackerConfigurationProps {
@@ -28,6 +29,8 @@ export default function RankTrackerConfiguration({
   domains,
 }: RankTrackerConfigurationProps) {
   const currentPath = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
 
   const domain = useRankTrackerStore((state) => state.property);
@@ -37,6 +40,16 @@ export default function RankTrackerConfiguration({
     if (!domainId || !domains?.some((domain) => domain.id === domainId)) return;
     changeDomain(domainId);
     setOpen(false);
+
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    params.set("domain", domainId);
+    params.delete("redirect");
+    if (!params.get("tab")) {
+      params.set("tab", "keyword");
+    }
+
+    const targetPath = currentPath === "/" ? "/domain" : currentPath;
+    router.push(`${targetPath}?${params.toString()}`, { scroll: false });
   };
 
   if (currentPath === "/") {
@@ -83,33 +96,36 @@ export default function RankTrackerConfiguration({
         <PopoverContent className="w-[300px] p-0">
           <Command>
             <CommandInput placeholder="Søg efter domæne..." />
-            <CommandEmpty>Fandt ingen domæner.</CommandEmpty>
-            <CommandGroup className="max-h-[400px] overflow-auto">
-              {domains?.map((domainItem) => (
-                <CommandItem
-                  key={domainItem.id}
-                  value={domainItem.id}
-                  onSelect={() => handleDomainChange(domainItem.id || "")}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 min-w-4 max-w-4",
-                      selectedDomain?.id === domainItem.id
-                        ? "opacity-100"
-                        : "opacity-0",
-                    )}
-                  />
-                  <div className="flex flex-col">
-                    <span className="truncate">{domainItem.display_name}</span>
-                    {getKeywordCount(domainItem) && (
-                      <span className="truncate text-xs text-black/50">
-                        {getKeywordCount(domainItem)}
-                      </span>
-                    )}
-                  </div>
-                </CommandItem>
-              ))}
-            </CommandGroup>
+            <CommandList className="max-h-[400px] overflow-auto">
+              <CommandEmpty>Fandt ingen domæner.</CommandEmpty>
+              <CommandGroup>
+                {domains?.map((domainItem) => (
+                  <CommandItem
+                    key={domainItem.id}
+                    value={String(domainItem.id ?? domainItem.display_name)}
+                    keywords={[domainItem.display_name, domainItem.url]}
+                    onSelect={() => handleDomainChange(String(domainItem.id || ""))}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 min-w-4 max-w-4",
+                        selectedDomain?.id === domainItem.id
+                          ? "opacity-100"
+                          : "opacity-0",
+                      )}
+                    />
+                    <div className="flex flex-col">
+                      <span className="truncate">{domainItem.display_name}</span>
+                      {getKeywordCount(domainItem) && (
+                        <span className="truncate text-xs text-black/50">
+                          {getKeywordCount(domainItem)}
+                        </span>
+                      )}
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
