@@ -72,6 +72,8 @@ export async function ensureDatabase(tenantId?: string) {
         await RankTrackerDomainModel.insertMany(
           seed.domains.map((domain) => ({
             tenantId: activeTenantId,
+            isSeeded: true,
+            pruneAfter: null,
             ...domain,
             display_name_lower: domain.display_name.trim().toLowerCase(),
           })),
@@ -82,6 +84,8 @@ export async function ensureDatabase(tenantId?: string) {
         await RankTrackerTagModel.insertMany(
           seed.tags.map((tag) => ({
             tenantId: activeTenantId,
+            isSeeded: true,
+            pruneAfter: null,
             ...tag,
             name_lower: tag.name.trim().toLowerCase(),
           })),
@@ -92,6 +96,8 @@ export async function ensureDatabase(tenantId?: string) {
         await RankTrackerKeywordModel.insertMany(
           seed.keywords.map((keyword) => ({
             tenantId: activeTenantId,
+            isSeeded: true,
+            pruneAfter: null,
             ...keyword,
             title_lower: keyword.title.trim().toLowerCase(),
           })),
@@ -101,6 +107,8 @@ export async function ensureDatabase(tenantId?: string) {
       const gscEntries = Object.entries(seed.gscBySiteUrl).map(
         ([siteUrl, records]) => ({
           tenantId: activeTenantId,
+          isSeeded: true,
+          pruneAfter: null,
           siteUrl,
           records,
         }),

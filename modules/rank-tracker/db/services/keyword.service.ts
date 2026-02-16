@@ -4,6 +4,7 @@ import {
   reserveCounterRange,
 } from "../core/database";
 import { getCurrentTenantId } from "../core/tenant";
+import { getNonSeededPruneAfterDate } from "../core/retention";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { MockKeyword, MockKeywordNote, MockTag } from "../types";
@@ -115,6 +116,7 @@ export async function createKeywords({
 
   const tagIds = await ensureDomainTagsInMongo(domainId, tags || [], tenantId);
   const siteUrl = await getDomainSiteUrl(domainId, tenantId);
+  const pruneAfter = getNonSeededPruneAfterDate();
   const keywordIds = await reserveCounterRange(
     "nextKeywordId",
     pendingTitles.length,
@@ -146,6 +148,8 @@ export async function createKeywords({
   await RankTrackerKeywordModel.insertMany(
     createdKeywords.map((keyword) => ({
       tenantId,
+      isSeeded: false,
+      pruneAfter,
       ...keyword,
       title_lower: keyword.title.toLowerCase(),
     })),
@@ -174,7 +178,12 @@ export async function createKeywords({
             $position: 0,
           },
         },
-        $setOnInsert: { tenantId, siteUrl },
+        $setOnInsert: {
+          tenantId,
+          siteUrl,
+          isSeeded: false,
+          pruneAfter,
+        },
       },
       { upsert: true },
     );

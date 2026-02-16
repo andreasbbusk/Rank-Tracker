@@ -2,6 +2,7 @@ import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
 import { RankTrackerTagModel } from "../models/tag.model";
 import { getCurrentTenantId } from "../core/tenant";
+import { getNonSeededPruneAfterDate } from "../core/retention";
 import { MockDomain, MockKeyword, MockLocation, MockTag } from "../types";
 import { buildRange } from "../utils/analytics";
 import {
@@ -77,6 +78,7 @@ export async function ensureDomainTagsInMongo(
   const reservedByLower = new Map(
     missing.map((name, index) => [name.toLowerCase(), reservedIds[index]]),
   );
+  const pruneAfter = getNonSeededPruneAfterDate();
 
   for (const name of cleaned) {
     const lower = name.toLowerCase();
@@ -100,6 +102,8 @@ export async function ensureDomainTagsInMongo(
           domainId,
           name,
           name_lower: lower,
+          isSeeded: false,
+          pruneAfter,
           created_at: new Date().toISOString(),
         },
       },

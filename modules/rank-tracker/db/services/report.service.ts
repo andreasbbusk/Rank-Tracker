@@ -1,10 +1,12 @@
 import { connectToDatabase } from "../config/connection";
 import { getCurrentTenantId } from "../core/tenant";
+import { getNonSeededPruneAfterDate } from "../core/retention";
 import { RankTrackerReportModel } from "../models/report.model";
 import { KeywordReport } from "../../types";
 
 export async function persistReport(report: KeywordReport): Promise<void> {
   const tenantId = await getCurrentTenantId();
+  const pruneAfter = getNonSeededPruneAfterDate();
   await connectToDatabase();
   await RankTrackerReportModel.updateOne(
     { tenantId, id: report.id },
@@ -13,6 +15,8 @@ export async function persistReport(report: KeywordReport): Promise<void> {
         tenantId,
         id: report.id,
         domainId: String(report.domain.id || ""),
+        isSeeded: false,
+        pruneAfter,
         reportData: report,
         createdAt: report.createdAt,
         updatedAt: report.updatedAt,

@@ -1,5 +1,6 @@
 import { ensureDatabase, getNextCounter } from "../core/database";
 import { getCurrentTenantId } from "../core/tenant";
+import { getNonSeededPruneAfterDate } from "../core/retention";
 import { RankTrackerDomainModel } from "../models/domain.model";
 import { RankTrackerGSCSiteModel } from "../models/gsc-site.model";
 import { RankTrackerKeywordModel } from "../models/keyword.model";
@@ -98,6 +99,7 @@ export async function createDomain({
   }
 
   const now = new Date().toISOString();
+  const pruneAfter = getNonSeededPruneAfterDate();
   const id = String(await getNextCounter("nextDomainId", tenantId));
 
   const domain: MockDomain = {
@@ -111,6 +113,8 @@ export async function createDomain({
 
   await RankTrackerDomainModel.create({
     tenantId,
+    isSeeded: false,
+    pruneAfter,
     ...domain,
     display_name_lower: domain.display_name.toLowerCase(),
   });
@@ -121,6 +125,8 @@ export async function createDomain({
     {
       $setOnInsert: {
         tenantId,
+        isSeeded: false,
+        pruneAfter,
         siteUrl,
         records: [
           {

@@ -12,6 +12,8 @@ const KeywordSchema = new Schema(
     domainId: { type: String, required: true },
     title: { type: String, required: true },
     title_lower: { type: String, required: true },
+    isSeeded: { type: Boolean, required: true, default: false },
+    pruneAfter: { type: Date, default: null },
     star_keyword: { type: Boolean, required: true, default: false },
     location: { type: LocationSchema, required: true },
     tagIds: { type: [Number], default: [] },
@@ -39,6 +41,13 @@ KeywordSchema.index({ tenantId: 1, domainId: 1, title_lower: 1 }, { unique: true
 KeywordSchema.index({ tenantId: 1, domainId: 1, created_at: -1, id: 1 });
 KeywordSchema.index({ tenantId: 1, domainId: 1, id: 1 });
 KeywordSchema.index({ tenantId: 1, "notes.id": 1 });
+KeywordSchema.index(
+  { pruneAfter: 1 },
+  {
+    expireAfterSeconds: 0,
+    partialFilterExpression: { isSeeded: false, pruneAfter: { $type: "date" } },
+  },
+);
 
 export const RankTrackerKeywordModel =
   mongoose.models.RankTrackerKeyword ||
