@@ -38,14 +38,14 @@ The data layer uses MongoDB + Mongoose with deterministic seeded data, so core p
 
 Each visitor gets an isolated Mongo-backed sandbox keyed by a session cookie (`rt_demo_session`).
 Seeded data is created per session and CRUD changes persist inside that session only.
-Non-seeded data can be pruned automatically after a retention window.
+Entire stale tenants (including seeded + user-created data) are pruned automatically after a retention window.
 Security headers are enabled globally in `next.config.mjs` (CSP, frame denial, referrer policy, etc.).
 
 ### Prune Job (Vercel Cron)
 
 - `vercel.json` is configured to run `/api/cron/prune` every hour.
 - Set env vars in Vercel:
-  - `NON_SEEDED_RETENTION_HOURS` (default `24`)
+  - `TENANT_RETENTION_HOURS` (default `24`)
   - `CRON_SECRET`
 - Vercel sends `Authorization: Bearer <CRON_SECRET>` automatically to cron endpoints when `CRON_SECRET` is set.
 - You can also trigger manually:

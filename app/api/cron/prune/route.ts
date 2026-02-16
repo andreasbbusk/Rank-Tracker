@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pruneExpiredNonSeededData } from "@/modules/rank-tracker/db/core/prune";
+import { pruneStaleTenants } from "@/modules/rank-tracker/db/core/prune";
 
 export const dynamic = "force-dynamic";
 
@@ -23,10 +23,10 @@ async function handlePrune(request: NextRequest) {
   }
 
   try {
-    const summary = await pruneExpiredNonSeededData();
+    const summary = await pruneStaleTenants();
     return NextResponse.json({ success: true, summary });
   } catch (error) {
-    console.error("Failed to prune non-seeded sandbox data", error);
+    console.error("Failed to prune stale sandbox tenants", error);
     return NextResponse.json(
       { success: false, error: "Prune job failed" },
       { status: 500 },

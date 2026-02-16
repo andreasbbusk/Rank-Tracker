@@ -9,8 +9,10 @@ import { RankTrackerTagModel } from "../models/tag.model";
 import { buildSeedDatabase, SEED_VERSION } from "../seed/seed-database";
 
 const DB_NAMESPACE = "rank-tracker-main";
+const TENANT_ACTIVITY_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 const initPromises = new Map<string, Promise<void>>();
+const tenantLastTouchedAt = new Map<string, number>();
 let indexSyncPromise: Promise<void> | null = null;
 
 async function ensureMultiTenantIndexes() {
@@ -41,6 +43,33 @@ async function resolveTenantId(tenantId?: string): Promise<string> {
   return getCurrentTenantId();
 }
 
+async function touchTenantActivity(
+  tenantId: string,
+  force = false,
+): Promise<void> {
+  const now = Date.now();
+  const lastTouchedAt = tenantLastTouchedAt.get(tenantId);
+
+  if (
+    !force &&
+    typeof lastTouchedAt === "number" &&
+    now - lastTouchedAt < TENANT_ACTIVITY_TOUCH_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  tenantLastTouchedAt.set(tenantId, now);
+
+  await RankTrackerMetaModel.updateOne(
+    { tenantId, key: DB_NAMESPACE },
+    {
+      $set: { lastActiveAt: new Date(now) },
+      $setOnInsert: { tenantId, key: DB_NAMESPACE },
+    },
+    { upsert: true },
+  );
+}
+
 export async function ensureDatabase(tenantId?: string) {
   const activeTenantId = await resolveTenantId(tenantId);
 
@@ -55,6 +84,7 @@ export async function ensureDatabase(tenantId?: string) {
       }).lean();
 
       if (meta?.seed_version === SEED_VERSION) {
+        await touchTenantActivity(activeTenantId);
         return;
       }
 
@@ -124,6 +154,7 @@ export async function ensureDatabase(tenantId?: string) {
           $set: {
             tenantId: activeTenantId,
             key: DB_NAMESPACE,
+            lastActiveAt: new Date(),
             ...seed.meta,
           },
         },
@@ -138,6 +169,7 @@ export async function ensureDatabase(tenantId?: string) {
   }
 
   await initPromises.get(activeTenantId);
+  await touchTenantActivity(activeTenantId);
 }
 
 type CounterField =
@@ -166,6 +198,7 @@ export async function reserveCounterRange(
     { tenantId: activeTenantId, key: DB_NAMESPACE },
     {
       $inc: { [field]: count },
+      $set: { lastActiveAt: new Date() },
       $setOnInsert: {
         tenantId: activeTenantId,
         key: DB_NAMESPACE,
@@ -218,5 +251,11 @@ export async function resetDatabase(tenantId?: string): Promise<void> {
   ]);
 
   initPromises.delete(activeTenantId);
+  tenantLastTouchedAt.delete(activeTenantId);
   await ensureDatabase(activeTenantId);
+}
+
+export function clearTenantInitializationCache(tenantId: string) {
+  initPromises.delete(tenantId);
+  tenantLastTouchedAt.delete(tenantId);
 }

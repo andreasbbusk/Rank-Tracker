@@ -15,11 +15,19 @@ function parseRetentionHours(raw: string | undefined): number {
   return parsed;
 }
 
-export function getNonSeededRetentionHours(): number {
-  return parseRetentionHours(process.env.NON_SEEDED_RETENTION_HOURS);
+export function getTenantRetentionHours(): number {
+  return parseRetentionHours(
+    process.env.TENANT_RETENTION_HOURS ||
+      process.env.NON_SEEDED_RETENTION_HOURS,
+  );
 }
 
 export function getNonSeededPruneAfterDate(from = new Date()): Date {
-  const hours = getNonSeededRetentionHours();
+  const hours = getTenantRetentionHours();
   return new Date(from.getTime() + hours * 60 * 60 * 1000);
+}
+
+export function getTenantStaleCutoffDate(from = new Date()): Date {
+  const hours = getTenantRetentionHours();
+  return new Date(from.getTime() - hours * 60 * 60 * 1000);
 }
