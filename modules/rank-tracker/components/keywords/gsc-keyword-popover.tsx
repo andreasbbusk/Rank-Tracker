@@ -49,7 +49,7 @@ export const GSCKeywordPopover = ({
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [isInitialRender, setIsInitialRender] = useState(true);
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement | null>(null);
 
   // Create a Set of current keywords for O(1) lookup
   const currentKeywordsSet = useMemo(
@@ -259,7 +259,7 @@ export const GSCKeywordPopover = ({
             <>
               <CommandGroup
                 className="max-h-[300px] overflow-auto p-1"
-                ref={parentRef}
+                ref={parentRef as React.RefObject<HTMLDivElement>}
               >
                 {filteredRecords.length === 0 ? (
                   <CommandEmpty>
