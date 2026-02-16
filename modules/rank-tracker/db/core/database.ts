@@ -18,13 +18,27 @@ let indexSyncPromise: Promise<void> | null = null;
 async function ensureMultiTenantIndexes() {
   if (!indexSyncPromise) {
     indexSyncPromise = (async () => {
+      const useCreateIndexes = process.env.NODE_ENV === "production";
+
       await Promise.all([
-        RankTrackerDomainModel.syncIndexes(),
-        RankTrackerTagModel.syncIndexes(),
-        RankTrackerKeywordModel.syncIndexes(),
-        RankTrackerGSCSiteModel.syncIndexes(),
-        RankTrackerReportModel.syncIndexes(),
-        RankTrackerMetaModel.syncIndexes(),
+        useCreateIndexes
+          ? RankTrackerDomainModel.createIndexes()
+          : RankTrackerDomainModel.syncIndexes(),
+        useCreateIndexes
+          ? RankTrackerTagModel.createIndexes()
+          : RankTrackerTagModel.syncIndexes(),
+        useCreateIndexes
+          ? RankTrackerKeywordModel.createIndexes()
+          : RankTrackerKeywordModel.syncIndexes(),
+        useCreateIndexes
+          ? RankTrackerGSCSiteModel.createIndexes()
+          : RankTrackerGSCSiteModel.syncIndexes(),
+        useCreateIndexes
+          ? RankTrackerReportModel.createIndexes()
+          : RankTrackerReportModel.syncIndexes(),
+        useCreateIndexes
+          ? RankTrackerMetaModel.createIndexes()
+          : RankTrackerMetaModel.syncIndexes(),
       ]);
     })().catch((error) => {
       indexSyncPromise = null;
@@ -169,7 +183,9 @@ export async function ensureDatabase(tenantId?: string) {
   }
 
   await initPromises.get(activeTenantId);
-  await touchTenantActivity(activeTenantId);
+  void touchTenantActivity(activeTenantId).catch((error) => {
+    console.error("Failed to update tenant activity", error);
+  });
 }
 
 type CounterField =

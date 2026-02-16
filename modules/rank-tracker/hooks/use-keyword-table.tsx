@@ -23,7 +23,6 @@ export default function useKeywordTable<TData extends Record<string, any>>({
   // Improved filter application with more logging and error handling
   const applyFilters = useCallback(
     (inputData: TData[]) => {
-      console.log(`Applying filters to ${inputData.length} items`);
       try {
         let processed = [...inputData];
         const isStarredFilter = filterParams.get("starred") === "true";
@@ -207,7 +206,6 @@ export default function useKeywordTable<TData extends Record<string, any>>({
           ]);
         }
 
-        console.log(`Filter applied, resulting in ${processed.length} items`);
         return processed;
       } catch (error) {
         console.error("Error applying filters:", error);
@@ -221,13 +219,6 @@ export default function useKeywordTable<TData extends Record<string, any>>({
   useEffect(() => {
     if (!data) return;
 
-    const dataChanged = data.length !== localData.length;
-    if (dataChanged) {
-      console.log(
-        `Data changed from ${localData.length} to ${data.length} items`,
-      );
-    }
-
     const processed = applyFilters(data);
     setLocalData(processed);
   }, [data, applyFilters, localData.length]);
@@ -240,10 +231,6 @@ export default function useKeywordTable<TData extends Record<string, any>>({
       const freshData = customEvent.detail?.freshData;
 
       if (Array.isArray(freshData) && freshData.length > 0) {
-        console.log(
-          "useKeywordTable: Received fresh data in event, updating immediately",
-        );
-
         // Update local data with new keywords
         setLocalData((prevData) => {
           // Add new items while avoiding duplicates

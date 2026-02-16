@@ -274,15 +274,36 @@ export async function getDomainKeywordsView({
     const keywordTags = keyword.tagIds
       .map((id) => tagsById.get(id))
       .filter((tag): tag is MockTag => Boolean(tag));
+    const currentRecord = keywordToViewRecord(keyword, keywordTags, 0);
+    const previousRecord = includeComparison
+      ? keywordToViewRecord(keyword, keywordTags, 1)
+      : null;
 
-    records.push(keywordToViewRecord(keyword, keywordTags, 0));
-    if (includeComparison) {
-      records.push(keywordToViewRecord(keyword, keywordTags, 1));
-    }
+    records.push({
+      ...currentRecord,
+      id: String(currentRecord.id),
+      dateRange: "date_range_0",
+      date_range_0: {
+        id: String(currentRecord.id),
+        dateRange: "date_range_0",
+        latest_stats: currentRecord.latest_stats,
+        overall_stats: currentRecord.overall_stats,
+        search_volume: currentRecord.search_volume,
+      },
+      date_range_1: previousRecord
+        ? {
+            id: String(previousRecord.id),
+            dateRange: "date_range_1",
+            latest_stats: previousRecord.latest_stats,
+            overall_stats: previousRecord.overall_stats,
+            search_volume: previousRecord.search_volume,
+          }
+        : undefined,
+    });
   }
 
   return {
-    count: totalKeywords * (includeComparison ? 2 : 1),
+    count: totalKeywords,
     next: null,
     previous: null,
     records,

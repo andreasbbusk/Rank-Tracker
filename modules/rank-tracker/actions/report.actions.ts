@@ -113,19 +113,6 @@ export const createKeywordReport = async (
   payload: CreateReportPayload,
   domain: DomainWithAnalytics,
 ): Promise<KeywordReport> => {
-  // Debug logging
-  console.log("Creating report with domain data:", {
-    domainId: domain.id,
-    displayName: domain.display_name,
-    hasDateRange0: !!domain.date_range_0,
-    hasDateRange1: !!domain.date_range_1,
-    keywordsCount: domain.keywords_count,
-    avgPosition: domain.avg_position,
-    clicks: domain.clicks,
-    impressions: domain.impressions,
-    domainData: domain,
-  });
-
   // Calculate date ranges - current period and previous period for comparison
   const currentDate = new Date();
   const periodLength = payload.dateRange
@@ -175,14 +162,6 @@ export const createKeywordReport = async (
       ),
     },
   };
-
-  console.log("Data analysis:", {
-    hasPreviousData,
-    currentPeriodData,
-    previousPeriodData,
-    hasDate0: !!domain.date_range_0,
-    hasDate1: !!domain.date_range_1,
-  });
 
   // Current period metrics
   const currentKeywords = currentPeriodData.total_keywords;

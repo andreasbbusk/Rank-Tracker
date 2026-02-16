@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 
 const DEFAULT_TENANT_ID = "public-demo";
 const MAX_TENANT_LENGTH = 80;
@@ -16,7 +17,7 @@ function sanitizeTenantId(value: string | undefined): string {
   return sanitized || DEFAULT_TENANT_ID;
 }
 
-export async function getCurrentTenantId(): Promise<string> {
+const resolveCurrentTenantId = cache(async (): Promise<string> => {
   const envTenant = process.env.RANK_TRACKER_TENANT_ID;
   if (envTenant) {
     return sanitizeTenantId(envTenant);
@@ -31,4 +32,8 @@ export async function getCurrentTenantId(): Promise<string> {
   } catch {
     return DEFAULT_TENANT_ID;
   }
+});
+
+export async function getCurrentTenantId(): Promise<string> {
+  return resolveCurrentTenantId();
 }

@@ -105,22 +105,11 @@ async function Content({
       ? keywordsView.records
       : [];
 
-  const domainKeywords = records.map((keyword: Keyword) => {
-    const viewKeyword = records.find(
-      (view: any) => view.id === Number(keyword.id),
-    );
-    if (viewKeyword) {
-      return {
-        ...keyword,
-        search_volume: viewKeyword.search_volume,
-        clicks: viewKeyword.clicks,
-        impressions: viewKeyword.impressions,
-        ranking: viewKeyword.position,
-        landing_page: viewKeyword.landing_page,
-      };
-    }
-    return keyword;
-  });
+  const domainKeywords = records.map((keyword: Keyword) => ({
+    ...keyword,
+    ranking: keyword.latest_stats?.[0]?.position ?? keyword.ranking,
+    landing_page: keyword.latest_stats?.[0]?.page ?? keyword.landing_page,
+  }));
 
   const selectedDateRanges = dateRanges.map((range) => ({
     from: new Date(range.start_date),

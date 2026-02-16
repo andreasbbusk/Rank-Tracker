@@ -44,9 +44,9 @@ function KeywordTableWrapperComponent({
 
   // Format the incoming data
   const formatData = useCallback((inputData: Keyword[]) => {
-    if (!inputData || !Array.isArray(inputData)) return [];
-
-    console.log(`Formatting ${inputData.length} keywords`);
+    if (!inputData || !Array.isArray(inputData) || inputData.length === 0) {
+      return [];
+    }
 
     const defaultOverallStats = {
       clicks: 0,
@@ -62,16 +62,17 @@ function KeywordTableWrapperComponent({
       month: new Date().toISOString().substring(0, 7),
     };
 
+    const comparisonByKeywordId = new Map<string, Keyword>();
+    for (const item of inputData) {
+      if (item.dateRange === "date_range_1") {
+        comparisonByKeywordId.set(String(item.id), item);
+      }
+    }
+
     const newData = inputData
-      // Filter for date_range_0 OR items without a dateRange (new keywords)
       .filter((item) => !item.dateRange || item.dateRange === "date_range_0")
       .map((item) => {
-        // Find the comparison data if it exists
-        const dataRange1 = inputData.find(
-          (i) =>
-            i.dateRange === "date_range_1" && String(i.id) === String(item.id),
-        );
-
+        const dataRange1 = comparisonByKeywordId.get(String(item.id));
         // Check if this is likely a newly created keyword
         const isNewKeyword =
           !item.latest_stats ||
@@ -121,11 +122,22 @@ function KeywordTableWrapperComponent({
                 search_volume: dataRange1?.search_volume || defaultSearchVolume,
                 dateRange: "date_range_1",
               }
-            : undefined,
+            : item.date_range_1
+              ? {
+                  ...item.date_range_1,
+                  id: Number(item.id),
+                  latest_stats:
+                    item.date_range_1?.latest_stats || defaultLatestStats,
+                  overall_stats:
+                    item.date_range_1?.overall_stats || defaultOverallStats,
+                  search_volume:
+                    item.date_range_1?.search_volume || defaultSearchVolume,
+                  dateRange: "date_range_1",
+                }
+              : undefined,
         };
       });
 
-    console.log(`Formatted data: ${newData.length} keywords`);
     return newData as unknown as Keyword[];
   }, []);
 
@@ -198,18 +210,8 @@ function KeywordTableWrapperComponent({
 
       // Only process if this is for our domain
       if (eventDomainId && eventDomainId === domainId) {
-        console.log(
-          "KeywordTableWrapper: Received update event for domain",
-          domainId,
-          "source:",
-          source,
-          "freshData:",
-          freshData
-            ? `${Array.isArray(freshData) ? freshData.length : "unknown"} items`
-            : "none",
-          "timestamp:",
-          new Date(timestamp).toISOString(),
-        );
+        void source;
+        void timestamp;
 
         // Set to refreshing state to trigger visual indicators
         setIsRefreshing(true);
@@ -232,15 +234,7 @@ function KeywordTableWrapperComponent({
               // If it already exists, update it; otherwise add it
               keywordMap.set(keyword.id, keyword);
             });
-
-            // Convert the map back to an array
-            const updatedData = Array.from(keywordMap.values());
-
-            console.log(
-              `Updated keyword table data: ${updatedData.length} total keywords (${newFormattedData.length} updated/added)`,
-            );
-
-            return updatedData;
+            return Array.from(keywordMap.values());
           });
         }
 
@@ -283,8 +277,6 @@ function KeywordTableWrapperComponent({
   useEffect(() => {
     if (!data) return;
 
-    console.log("Processing data update, rows:", processedData.length);
-
     // Check if we have existing data to merge with
     if (formattedData.length > 0) {
       // Use a map to efficiently update existing records or add new ones
@@ -323,8 +315,6 @@ function KeywordTableWrapperComponent({
     );
 
     if (hasValidDateRanges) {
-      console.log("Date ranges changed, refreshing keyword data");
-
       // Use a debounce to prevent multiple refreshes if many updates happen at once
       const debounceTimer = setTimeout(() => {
         refreshData();
