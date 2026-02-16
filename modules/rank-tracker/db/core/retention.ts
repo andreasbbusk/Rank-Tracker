@@ -16,10 +16,7 @@ function parseRetentionHours(raw: string | undefined): number {
 }
 
 export function getTenantRetentionHours(): number {
-  return parseRetentionHours(
-    process.env.TENANT_RETENTION_HOURS ||
-      process.env.NON_SEEDED_RETENTION_HOURS,
-  );
+  return parseRetentionHours(process.env.TENANT_RETENTION_HOURS);
 }
 
 export function getNonSeededPruneAfterDate(from = new Date()): Date {
