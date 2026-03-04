@@ -1,4 +1,14 @@
 /** @type {import('next').NextConfig} */
+const baseCspDirectives =
+  "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; font-src 'self' data:; base-uri 'self'; form-action 'self'";
+
+const embedFrameAncestors =
+  "https://andreasbusk.dk https://www.andreasbusk.dk http://localhost:3000";
+
+function buildCsp(frameAncestors) {
+  return `${baseCspDirectives}; frame-ancestors ${frameAncestors}`;
+}
+
 const nextConfig = {
   output: 'standalone',
   experimental: {
@@ -14,10 +24,6 @@ const nextConfig = {
             value: "nosniff",
           },
           {
-            key: "X-Frame-Options",
-            value: "DENY",
-          },
-          {
             key: "Referrer-Policy",
             value: "strict-origin-when-cross-origin",
           },
@@ -27,8 +33,16 @@ const nextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+            value: buildCsp("'none'"),
+          },
+        ],
+      },
+      {
+        source: "/embed/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: buildCsp(embedFrameAncestors),
           },
         ],
       },
