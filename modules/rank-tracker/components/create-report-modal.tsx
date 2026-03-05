@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, CalendarIcon } from "lucide-react";
 import {
@@ -37,6 +37,7 @@ import { cn } from "@/modules/core/lib/utils";
 import { DomainWithAnalytics, CreateReportPayload } from "../types";
 import { createKeywordReport } from "../actions/report.actions";
 import { useReportStore } from "../store/report.store";
+import { toEmbedAwarePath } from "../utils/embed-path";
 
 interface CreateReportModalProps {
   isOpen: boolean;
@@ -58,6 +59,7 @@ export const CreateReportModal = ({
   domains,
 }: CreateReportModalProps) => {
   const router = useRouter();
+  const pathname = usePathname();
   const { addReport, setLoading } = useReportStore();
 
   const [formData, setFormData] = useState<CreateReportPayload>({
@@ -125,7 +127,7 @@ export const CreateReportModal = ({
       onClose();
 
       // Navigate to the report page
-      router.push(`/report/${report.id}`);
+      router.push(toEmbedAwarePath(pathname, `/report/${report.id}`));
     } catch (error) {
       console.error("Failed to create report:", error);
       toast.error("Der opstod en fejl ved oprettelse af rapporten", {

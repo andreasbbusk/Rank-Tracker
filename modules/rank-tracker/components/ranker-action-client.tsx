@@ -22,6 +22,7 @@ import { AddKeywordDialogWithProvider } from "./keywords/add-keyword";
 import CSVExport from "./shared/csv-export";
 import { CreateReportModal } from "./create-report-modal";
 import { ReportsModal } from "./reports-modal";
+import { toEmbedAwarePath } from "../utils/embed-path";
 
 // Define a strict DateRange type for the CSV export
 interface DateRange {
@@ -78,7 +79,7 @@ export default function RankerActionClient({
   return (
     <div className="mb-6 flex w-full xl:h-[57px]">
       <div className="flex w-full border-b border-b-black/10 pb-3 xl:h-[57px] xl:pb-0">
-        <div className="mx-auto h-full w-full max-w-9xl">
+        <div className="h-full w-full">
           <div className="flex h-full items-center justify-between px-4 md:px-6">
             <div className="flex items-center gap-3">
               {isReportPage ? (
@@ -137,7 +138,8 @@ export default function RankerActionClient({
                         params.delete("domain");
                         params.delete("tab");
 
-                        const newUrl = `/${params.toString() ? `?${params.toString()}` : ""}`;
+                        const nextPath = `/${params.toString() ? `?${params.toString()}` : ""}`;
+                        const newUrl = toEmbedAwarePath(pathname, nextPath);
 
                         // Trigger a hard navigation to ensure the page is reloaded with the current date ranges
                         window.location.href = newUrl;

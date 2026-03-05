@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +51,7 @@ import {
   sortReportsByDate,
 } from "../utils/report-utils";
 import { REPORT_STATUSES, REPORT_TYPES } from "../constants/reports.constants";
+import { toEmbedAwarePath } from "../utils/embed-path";
 
 interface ReportsModalProps {
   isOpen: boolean;
@@ -74,6 +75,7 @@ export const ReportsModal = ({
   selectedDomainId,
 }: ReportsModalProps) => {
   const router = useRouter();
+  const pathname = usePathname();
   const {
     reports,
     isLoading,
@@ -161,7 +163,7 @@ export const ReportsModal = ({
   };
 
   const handleViewReport = (reportId: string) => {
-    router.push(`/report/${reportId}`);
+    router.push(toEmbedAwarePath(pathname, `/report/${reportId}`));
     onClose();
   };
 

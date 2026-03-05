@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Edit,
@@ -46,6 +46,7 @@ import { useReportStore } from "../store/report.store";
 import { updateKeywordReport } from "../actions/report.actions";
 import ReportContentBlockComponent from "./report-content-block";
 import AddBlockSection from "./add-block-section";
+import { toEmbedAwarePath } from "../utils/embed-path";
 
 interface ReportViewerProps {
   reportId: string;
@@ -257,6 +258,7 @@ const SortableBlock = ({
 
 const ReportViewer = ({ reportId }: ReportViewerProps) => {
   const router = useRouter();
+  const pathname = usePathname();
   const { reports, updateReport } = useReportStore();
   const [report, setReport] = useState<KeywordReport | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -278,9 +280,9 @@ const ReportViewer = ({ reportId }: ReportViewerProps) => {
     } else {
       // In a real app, you would fetch from API here
       toast.error("Rapport ikke fundet");
-      router.push("/");
+      router.push(toEmbedAwarePath(pathname, "/"));
     }
-  }, [reportId, reports, router]);
+  }, [pathname, reportId, reports, router]);
 
   // Listen for events from layout sidebar
   useEffect(() => {

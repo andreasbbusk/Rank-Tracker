@@ -21,6 +21,7 @@ export default function RankerConfigurationBar({
 }: RankerConfigurationBarProps) {
   const { open } = useSidebar();
   const pathname = usePathname();
+  const isEmbedRoute = pathname?.startsWith("/embed");
 
   const compareType = useStore(
     useRankTrackerStore,
@@ -41,11 +42,15 @@ export default function RankerConfigurationBar({
   return (
     <section
       className={cn(
-        "ignore z-10 rounded-t-xl border-b border-b-black/10 bg-white transition-all duration-200 ease-linear lg:sticky lg:right-2 lg:top-0",
-        open ? "lg:left-[294px]" : "lg:left-2",
+        "ignore z-10 rounded-t-xl border-b border-b-black/10 bg-white transition-all duration-200 ease-linear lg:sticky lg:top-0",
+        isEmbedRoute
+          ? "lg:left-0 lg:right-0"
+          : open
+            ? "lg:left-[294px] lg:right-2"
+            : "lg:left-2 lg:right-2",
       )}
     >
-      <div className="mx-auto flex w-full max-w-9xl flex-col justify-between gap-4 px-4 py-3 md:px-6 xl:flex-row xl:items-center">
+      <div className="flex w-full flex-col justify-between gap-4 px-4 py-3 md:flex-row md:items-center md:px-6">
         <div className="flex gap-4">
           <div className="flex items-center gap-2">
             <Image

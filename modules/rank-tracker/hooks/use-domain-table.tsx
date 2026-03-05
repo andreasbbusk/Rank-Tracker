@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { deleteDomain, updateDomain } from "../actions/ranker-domain.actions";
 import { createDomainsView } from "../actions/ranker-views.actions";
 import { Domain, DomainWithAnalytics } from "../types/index";
+import { toEmbedAwarePath } from "../utils/embed-path";
 
 export default function useDomainTable() {
   const [domainList, setDomainList] = useState<DomainWithAnalytics[]>([]);
@@ -16,7 +17,7 @@ export default function useDomainTable() {
   const [showKeywordDialog, setShowKeywordDialog] = useState(false);
   const [selectedDomainForKeywords, setSelectedDomainForKeywords] =
     useState<Domain | null>(null);
-  const { searchParams, router } = useQueryString();
+  const { searchParams, router, pathname } = useQueryString();
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [navigatingDomainId, setNavigatingDomainId] = useState<string | null>(
@@ -169,7 +170,10 @@ export default function useDomainTable() {
     if (range) navigationParams.set("range", range);
     if (rangeCompare) navigationParams.set("rangeCompare", rangeCompare);
 
-    const url = `/domain?${navigationParams.toString()}`;
+    const url = toEmbedAwarePath(
+      pathname,
+      `/domain?${navigationParams.toString()}`,
+    );
 
     // Use the router for navigation when possible to maintain React context
     router.push(url);
