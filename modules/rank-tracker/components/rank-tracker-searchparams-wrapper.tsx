@@ -66,8 +66,9 @@ export default function RankTrackerSearchParamsWrapper({
     dateRange !== undefined &&
     tab !== undefined &&
     filters !== undefined;
-  // Check if we're on the main page with no domain parameter
-  const isMainPage = pathname === "/" && !currentDomain;
+  // Treat both standard and embed roots as "main page" contexts.
+  const isMainPage =
+    (pathname === "/" || pathname === "/embed") && !currentDomain;
 
   // Check if we're on the domain page and only missing the tab parameter
   const isMissingOnlyTab =
